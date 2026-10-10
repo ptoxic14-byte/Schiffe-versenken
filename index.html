@@ -61,6 +61,8 @@ h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:26px;line-hei
 .cell.s-hit::after{content:"";position:absolute;inset:16%;filter:drop-shadow(0 0 3px var(--hit));
   background:linear-gradient(45deg,transparent 40%,var(--hit) 40% 60%,transparent 60%),linear-gradient(-45deg,transparent 40%,var(--hit) 40% 60%,transparent 60%)}
 .cell.s-sunk{background:repeating-linear-gradient(45deg,var(--hit) 0 3px,var(--hit-soft) 3px 6px);box-shadow:0 0 6px color-mix(in srgb,var(--hit) 50%,transparent)}
+.cell.queued{box-shadow:inset 0 0 0 2px var(--signal);animation:qpulse .7s ease-in-out infinite}
+@keyframes qpulse{50%{box-shadow:inset 0 0 0 2px transparent}}
 .cell.last{box-shadow:0 0 0 2px var(--signal),0 0 10px var(--signal);z-index:1}
 .enemy.locked .cell{cursor:default}
 
@@ -160,6 +162,24 @@ body.silent .app{filter:hue-rotate(-115deg) brightness(.85);transition:filter 1.
 .app{transition:filter 1.4s}
 @keyframes redpulse{50%{opacity:.65}}
 @media (prefers-reduced-motion:reduce){.silentbtn.pulse,body.silent .silent-ov{animation:none}}
+.endbar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:44;display:flex;gap:8px;align-items:stretch;padding:8px;width:max-content;max-width:calc(100% - 32px);background:var(--paper);border:1px solid var(--signal);border-radius:4px;box-shadow:0 0 22px color-mix(in srgb,var(--signal) 30%,transparent)}
+.endbar .btn.primary{font-size:22px;padding:8px 16px}
+.toast{position:fixed;left:50%;top:calc(10px + env(safe-area-inset-top,0px));z-index:46;transform:translate(-50%,-160%);transition:transform .35s ease;padding:8px 14px;max-width:calc(100% - 32px);background:var(--paper);border:1px solid var(--ink);border-radius:3px;font-size:13px;font-weight:600;box-shadow:0 0 14px color-mix(in srgb,var(--ink) 30%,transparent);pointer-events:none}
+.toast.show{transform:translate(-50%,0)}
+.count.ready{color:var(--signal)}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}.cell.queued{animation:none}}
+.radiobtn{border-color:var(--signal);color:var(--signal)}
+.radiobtn.unread{background:var(--signal);color:var(--bg);text-shadow:none}
+.radio{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:47;width:min(560px,calc(100% - 32px));display:grid;gap:8px;padding:10px;background:var(--paper);border:1px solid var(--signal);border-radius:4px;box-shadow:0 0 22px color-mix(in srgb,var(--signal) 30%,transparent)}
+.radio-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}
+.radio-row input{min-width:0;font:inherit;font-size:16px;padding:8px 10px;border:1px solid var(--grid);border-radius:3px;background:var(--sea);color:var(--ink)}
+.radio-row input:focus-visible{outline:2px solid var(--signal);outline-offset:1px}
+.radio-row .btn.primary{font-size:20px;padding:6px 12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{font:inherit;font-size:12px;padding:5px 9px;border:1px solid var(--grid);border-radius:999px;background:transparent;color:var(--ink);cursor:pointer;text-shadow:inherit}
+.chips button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+.log li.funk{color:var(--signal)}
+.log li.funk.mine{color:var(--muted)}
 .log{background:var(--paper);border:1px solid var(--grid);border-radius:4px;padding:14px;display:grid;gap:8px}
 .log-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
 .log ol{list-style:none;margin:0;padding:0;font-size:13px;display:grid;gap:3px;max-height:9.5em;overflow-y:auto}
@@ -214,6 +234,7 @@ body.silent .app{filter:hue-rotate(-115deg) brightness(.85);transition:filter 1.
     </div>
     <div class="tools">
       <button id="newGame" class="btn nav">‹ Menü</button>
+      <button id="radioBtn" class="btn radiobtn" hidden>Funk</button>
       <button id="again" class="btn nav" hidden>Ergebnis</button>
       <button id="weapon" class="btn">Waffe: Kanone</button>
       <button id="music" class="btn">Musik: an</button>
@@ -325,6 +346,22 @@ body.silent .app{filter:hue-rotate(-115deg) brightness(.85);transition:filter 1.
     <button id="resView" class="linkbtn">Spielfeld ansehen</button>
   </div>
 </div>
+
+<div class="endbar" id="endbar" hidden>
+  <button id="endAgain" class="btn primary">Nochmal</button>
+  <button id="endResult" class="btn">Ergebnis</button>
+  <button id="endMenu" class="btn">Menü</button>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<form class="radio" id="radio" hidden>
+  <div class="chips" id="chips"></div>
+  <div class="radio-row">
+    <label class="sr-only" for="radioIn">Funkspruch</label>
+    <input id="radioIn" maxlength="80" autocomplete="off" enterkeyhint="send" placeholder="Funkspruch an den Gegner …">
+    <button class="btn primary" type="submit">Senden</button>
+    <button class="btn" type="button" id="radioClose" aria-label="Funk schliessen">×</button>
+  </div>
+</form>
 
 <script>
 const N=10, COLS="ABCDEFGHIJ";
@@ -553,7 +590,7 @@ function launch(fromEl,toEl,weapon){
     if(reduced){res();return}
     const b=center(toEl);if(!b){res();return}
     const a=center(fromEl)||{x:innerWidth/2,y:fromEl===$("enemyBoard")?-30:innerHeight+30};
-    fx.push({weapon,a,b,t0:performance.now(),dur:weapon==="laser"?320:700,trail:[],done:res});kick();
+    fx.push({weapon,a,b,t0:performance.now(),dur:weapon==="laser"?260:520,trail:[],done:res});kick();
   });
 }
 function burst(el,kind){
@@ -798,22 +835,44 @@ function paint(cells,side,showShips,last,prev,hidden=-1){
 }
 // Pixel-Schiffe: pro Schiffstyp ein Bild über die ganze Länge, jede Kachel zeigt ihren Ausschnitt
 const SHIP_SPR=(()=>{
-  const C={hull:"#3dbb5f",deck:"#2a8a45",dark:"#0b1c11",light:"#a6ffb8",acc:"#e9ff7a"};
-  function hullCol(x,W,type){
-    if(type===3){const e=7;let h=4;if(x<e)h=4*Math.sqrt((x+.5)/e);else if(x>W-e)h=4*Math.sqrt((W-x-.5)/e);return h}
-    const bow=[7,10,9,0,11][type],st=type===0?0:2;let h=5;
-    if(x>W-bow)h=5*(1-((x-(W-bow))/bow)*.85);if(x<st)h=4;return h;
+  const C={hl:"#6fdb8a",hull:"#3dbb5f",hd:"#23803f",deck:"#2c8f48",dl:"#1f6c37",dark:"#06120a",light:"#a6ffb8",white:"#e2ffe8",acc:"#e9ff7a"},P=24;
+  // halbe Rumpfbreite je Spalte: Heck links, Bug rechts
+  function half(x,W,t){
+    const m=[8,7,6,5,5][t],bow=[9,16,14,10,16][t],st=[0,4,3,10,3][t];let h=m;
+    if(t===3){if(x<st)h=m*Math.sqrt((x+.5)/st);else if(x>W-bow)h=m*Math.sqrt((W-x-.5)/bow);return h}
+    if(x>W-bow){const f=(x-(W-bow))/bow;h=m*(1-f*f*.9)}
+    if(x<st)h=m-(st-x)*.6;return h;
   }
-  function draw(type,len){
-    const W=16*len,cv=document.createElement("canvas");cv.width=W;cv.height=16;const x=cv.getContext("2d"),r=(c,a,b,w,h)=>{x.fillStyle=c;x.fillRect(Math.round(a),Math.round(b),w,h)};
-    for(let i=0;i<W;i++){const h=hullCol(i,W,type),t=Math.round(8-h),hh=Math.max(1,Math.round(2*h));r(C.dark,i,t-1,1,hh+2);r(C.hull,i,t,1,hh);if(hh>4)r(C.deck,i,t+2,1,hh-4)}
-    const tur=(px)=>{r(C.dark,px-2,6,5,4);r(C.light,px-1,7,3,2);r(C.light,px+2,7,4,1)};
-    if(type===0){for(let i=4;i<W-12;i+=6)r(C.light,i,7,3,1);const ix=Math.round(W*.6);r(C.dark,ix-1,0,9,6);r(C.hull,ix,1,7,4);r(C.light,ix+1,2,2,1);r(C.light,ix+4,2,2,1);r(C.acc,ix+3,0,1,1)}
-    if(type===1){[.18,.3,.8].forEach(f=>tur(Math.round(W*f)));const sx=Math.round(W*.45);r(C.dark,sx-1,4,14,8);r(C.light,sx,5,12,6);r(C.dark,sx+3,6,2,1);r(C.dark,sx+7,6,2,1);r(C.acc,sx+5,3,2,2)}
-    if(type===2){[.22,.75].forEach(f=>tur(Math.round(W*f)));const sx=Math.round(W*.45);r(C.dark,sx-1,5,10,6);r(C.light,sx,6,8,4);r(C.acc,sx+4,2,1,4)}
-    if(type===3){const cx=Math.round(W*.45);r(C.dark,cx-1,3,9,4);r(C.hull,cx,4,7,3);r(C.light,cx+5,1,1,3);r(C.light,cx+5,1,3,1);r(C.light,6,8,W-14,1)}
-    if(type===4){tur(Math.round(W*.72));const fx=Math.round(W*.36);r(C.dark,fx-1,4,6,6);r(C.light,fx,5,4,4);r(C.dark,fx,5,4,1);r(C.light,Math.round(W*.52),6,4,4)}
-    const v=document.createElement("canvas");v.width=16;v.height=W;const y=v.getContext("2d");y.translate(0,W);y.rotate(-Math.PI/2);y.drawImage(cv,0,0);
+  function draw(t,len){
+    const W=P*len,cv=document.createElement("canvas");cv.width=W;cv.height=P;const x=cv.getContext("2d");
+    const r=(c,a,b,w,h)=>{x.fillStyle=c;x.fillRect(Math.round(a),Math.round(b),w,h)};
+    const line=(c,x0,y0,x1,y1)=>{const n=Math.max(Math.abs(x1-x0),Math.abs(y1-y0));for(let k=0;k<=n;k++)r(c,x0+(x1-x0)*k/n,y0+(y1-y0)*k/n,1,1)};
+    for(let i=0;i<W;i++){const h=half(i,W,t);if(h<.6)continue;const top=Math.round(12-h),hh=Math.max(1,Math.round(2*h));
+      r(C.dark,i,top-1,1,hh+2);r(t===3?C.hd:C.hull,i,top,1,hh);r(C.hl,i,top,1,1);r(C.hd,i,top+hh-1,1,1);
+      if(t!==3&&hh>6)r(C.deck,i,top+2,1,hh-4)}
+    const tur=(px,dir)=>{r(C.dark,px-3,9,7,7);r(C.light,px-2,10,5,5);r(C.hd,px-1,11,3,3);const bx=dir>0?px+3:px-10;r(C.white,bx,10,7,1);r(C.white,bx,14,7,1)};
+    if(t===0){ // Flugzeugträger: Landebahn, Winkeldeck, Insel, Flugzeuge
+      for(let i=6;i<W-14;i+=8)r(C.light,i,12,4,1);line(C.light,Math.round(W*.08),18,Math.round(W*.4),6);
+      const ix=Math.round(W*.64);r(C.dark,ix-1,2,13,7);r(C.hull,ix,3,11,5);r(C.dark,ix+2,4,2,2);r(C.dark,ix+6,4,2,2);r(C.acc,ix+5,1,1,3);
+      [.22,.34,.5].forEach(f=>{const px=Math.round(W*f);r(C.white,px,15,5,1);r(C.white,px+2,13,1,5);r(C.white,px+4,14,1,3)});
+    }
+    if(t===1){ // Schlachtschiff: drei schwere Türme, Brückenturm, Schornstein
+      tur(Math.round(W*.14),-1);tur(Math.round(W*.27),-1);tur(Math.round(W*.8),1);
+      const sx=Math.round(W*.4);r(C.dark,sx-1,6,24,12);r(C.light,sx,7,22,10);r(C.white,sx+12,8,8,8);r(C.dark,sx+3,9,5,6);r(C.hd,sx+4,10,3,4);r(C.acc,sx+15,10,2,4);
+    }
+    if(t===2){ // Kreuzer: zwei Türme, Aufbau mit Mast
+      tur(Math.round(W*.2),-1);tur(Math.round(W*.77),1);
+      const sx=Math.round(W*.4);r(C.dark,sx-1,7,18,10);r(C.light,sx,8,16,8);r(C.dark,sx+3,10,4,4);r(C.white,sx+9,9,5,6);line(C.acc,sx+11,4,sx+11,9);r(C.acc,sx+9,5,5,1);
+    }
+    if(t===3){ // U-Boot: Turm mit Periskop, Rückenlinie, Ruder
+      for(let i=10;i<W-12;i+=3)r(C.dl,i,12,2,1);const cx=Math.round(W*.42);r(C.dark,cx-1,8,13,8);r(C.hull,cx,9,11,6);r(C.hl,cx+1,10,9,1);r(C.acc,cx+7,5,1,4);r(C.acc,cx+7,5,3,1);
+      r(C.dark,1,9,2,7);r(C.hd,1,10,1,5);
+    }
+    if(t===4){ // Zerstörer: Geschütz, Torpedorohre, Schornstein, Brücke
+      tur(Math.round(W*.8),1);const tx=Math.round(W*.2);r(C.dark,tx,9,8,2);r(C.dark,tx,13,8,2);r(C.light,tx+1,9,6,1);r(C.light,tx+1,13,6,1);
+      const fx=Math.round(W*.42);r(C.dark,fx-1,8,7,8);r(C.hd,fx,9,5,6);r(C.light,fx+1,10,3,1);const bx=Math.round(W*.58);r(C.dark,bx-1,8,8,8);r(C.white,bx,9,6,6);r(C.dark,bx+2,10,3,2);
+    }
+    const v=document.createElement("canvas");v.width=P;v.height=W;const y=v.getContext("2d");y.translate(0,W);y.rotate(-Math.PI/2);y.drawImage(cv,0,0);
     return{h:cv.toDataURL(),v:v.toDataURL()};
   }
   try{return FLEET.map(([,len],t)=>draw(t,len))}catch(e){return null}
@@ -822,7 +881,7 @@ function shipBg(side,i){
   if(!SHIP_SPR)return"";const s=side.ships[side.grid[i]];if(!s||!s.cells.length)return"";
   const cs=s.cells.slice().sort((a,b)=>a-b),k=cs.indexOf(i),n=cs.length;if(k<0)return"";
   const h=n<2||cs[1]-cs[0]===1,pc=n>1?k/(n-1)*100:0;
-  return h?`url(${SHIP_SPR[s.id].h}) ${pc}% 0/${n*100}% 100% no-repeat, var(--sea)`:`url(${SHIP_SPR[s.id].v}) 0 ${100-pc}%/100% ${n*100}% no-repeat, var(--sea)`;
+  return h?`url(${SHIP_SPR[s.id].h}) ${pc}% 0/${n*100}% 100% no-repeat, var(--sea)`:`url(${SHIP_SPR[s.id].v}) 0 ${pc}%/100% ${n*100}% no-repeat, var(--sea)`;
 }
 function fleetList(el,side){el.innerHTML=side.ships.map(s=>`<li class="${s.sunk?"sunk":""}"><span class="pips">${"<i></i>".repeat(s.len)}</span>${s.name}</li>`).join("")}
 function render(){
@@ -849,14 +908,20 @@ function render(){
   $("stats").textContent=shots?`${shots} Schüsse · ${Math.round(hits/shots*100)} % Treffer`:"";
   $("log").innerHTML=logItems.map(([t,c])=>`<li class="${c}">${t}</li>`).join("");
   $("newGame").hidden=phase==="menu";
-  $("again").hidden=!(phase==="over"&&!resultOpen&&lastRes);
+  $("again").hidden=true;
+  const rb=$("radioBtn");rb.hidden=!(mode==="duo"&&duo&&phase!=="menu");if(!rb.hidden){rb.textContent=duo.unread?`Funk (${duo.unread})`:"Funk";rb.classList.toggle("unread",duo.unread>0)}
+  if(rb.hidden&&!$("radio").hidden)$("radio").hidden=true;
+  $("endbar").hidden=!(phase==="over"&&!resultOpen&&lastRes);
+  if(!$("endbar").hidden)$("endAgain").textContent=mode==="cpu"?(lastRes.won?"Nochmal":"Revanche"):(duo&&duo.oppRound>duo.round?"Revanche annehmen":"Neue Runde");
   renderResult();
   if(phase==="menu"){renderMenu();return}
   paint(pCells,player,true,lastCpu,preview,duo?duo.hideIn:-1);
   fleetList($("playerFleet"),player);
-  $("playerCount").textContent=phase==="setup"?`${player.ships.filter(s=>s.cells.length).length}/5 platziert`:`${afloat(player)} von 5 schwimmen`;
+  const dSet=phase==="setup"&&mode==="duo"&&duo;
+  $("playerCount").textContent=phase==="setup"?`${player.ships.filter(s=>s.cells.length).length}/5 platziert`+(dSet?` · ${duo.oppReady?"Gegner bereit":duo.oppOnline?"Gegner stellt auf":"Gegner fehlt"}`:""):`${afloat(player)} von 5 schwimmen`;
+  $("playerCount").classList.toggle("ready",!!(dSet&&duo.oppReady));
   if(inGame){
-    paint(eCells,enemy,phase==="over",lastPlayer,null);
+    paint(eCells,enemy,phase==="over",lastPlayer,null);if(queued>=0&&phase==="play")eCells[queued].classList.add("queued");
     fleetList($("enemyFleet"),enemy);
     $("enemyCount").textContent=`${afloat(enemy)} von 5 schwimmen`;
     $("enemyTitle").textContent=mode==="duo"?"Gegner":CMDR[diff].short;
@@ -898,9 +963,12 @@ function renderMenu(){
   $("resume").hidden=!s;
   if(s)$("resume").textContent=`Partie in Raum ${s.code} fortsetzen`;
 }
+function toast(t){const el=$("toast");el.textContent=t;el.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove("show"),3200)}
+const esc=t=>String(t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const cleanMsg=t=>String(t).replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g,"").trim().slice(0,80);
 function status(t,cls){clearInterval(typeStatus.t);const s=$("status");s.textContent=t;s.className="status"+(cls?" "+cls:"")}
 function log(t,c){logItems.unshift([t,c]);logItems.length=Math.min(logItems.length,40)}
-function resetBattle(){stopSilent();silent={used:false,left:0,timer:null};resultOpen=false;score={pts:0,streak:0,hitPts:0,comboPts:0,effPts:0,winPts:0};game++;fx.forEach(f=>f.done());fx=[];parts=[];turn=null;selected=null;horiz=true;lastPlayer=lastCpu=-1;shots=hits=0;logItems=[];preview=null}
+function resetBattle(){queued=-1;stopSilent();silent={used:false,left:0,timer:null};resultOpen=false;score={pts:0,streak:0,hitPts:0,comboPts:0,effPts:0,winPts:0};game++;fx.forEach(f=>f.done());fx=[];parts=[];turn=null;selected=null;horiz=true;lastPlayer=lastCpu=-1;shots=hits=0;logItems=[];preview=null}
 
 function toMenu(){
   leaveDuo(true);resetBattle();phase="menu";mode="cpu";
@@ -1009,7 +1077,21 @@ $("resAgain").addEventListener("click",()=>{if(mode==="duo"&&duo)duoNewRound();e
 $("resUp").addEventListener("click",()=>{diff=Math.min(2,diff+1);store.set("sv-diff",String(diff));startCpu()});
 $("resMenu").addEventListener("click",toMenu);
 $("resView").addEventListener("click",()=>{resultOpen=false;render()});
-addEventListener("keydown",e=>{if(e.key==="Escape"&&resultOpen){resultOpen=false;render()}});
+$("endAgain").addEventListener("click",()=>{if(mode==="duo"&&duo)duoNewRound();else startCpu()});
+$("endResult").addEventListener("click",()=>{resultOpen=true;render()});
+$("endMenu").addEventListener("click",toMenu);
+addEventListener("keydown",e=>{if(e.key==="Escape"&&resultOpen){resultOpen=false;render()}else if(e.key==="Escape"&&!$("radio").hidden){$("radio").hidden=true;render()}});
+const CHIPS=["Guter Schuss!","Na warte …","Daneben!","Glück gehabt.","Revanche?","Gut gespielt!"];
+$("chips").innerHTML=CHIPS.map(c=>`<button type="button">${esc(c)}</button>`).join("");
+function sendRadio(t){
+  t=cleanMsg(t);if(!t||!duo)return;
+  duo.chatOut=duo.chatOut.concat({i:duo.tok+"-"+(++duo.chatN)+"-"+Date.now().toString(36),t}).slice(-8);
+  pushPresence();saveDuo();log(`Du: «${esc(t)}»`,"funk mine");SFX.click();render();
+}
+$("radioBtn").addEventListener("click",()=>{const f=$("radio");f.hidden=!f.hidden;if(!f.hidden&&duo){duo.unread=0;$("radioIn").focus()}render()});
+$("radioClose").addEventListener("click",()=>{$("radio").hidden=true;render()});
+$("chips").addEventListener("click",e=>{const b=e.target.closest("button");if(b)sendRadio(b.textContent)});
+$("radio").addEventListener("submit",e=>{e.preventDefault();sendRadio($("radioIn").value);$("radioIn").value=""});
 $("diff").addEventListener("click",e=>{const b=e.target.closest("button[data-d]");if(!b)return;diff=+b.dataset.d;store.set("sv-diff",String(diff));SFX.click();render()});
 $("modeCpu").addEventListener("click",startCpu);
 $("host").addEventListener("click",()=>{let c="";for(let k=0;k<4;k++)c+=CODE_CHARS[rand(CODE_CHARS.length)];startDuo(c,"host",null)});
@@ -1036,22 +1118,33 @@ function impact(cellEl,r){
   else if(r.result==="hit"){burst(cellEl,"hit");SFX.hit()}
   else{burst(cellEl,"sunk");SFX.sunk();shake()}
 }
-$("enemyBoard").addEventListener("click",async e=>{
-  const b=e.target.closest(".cell");if(!b||phase!=="play"||turn!=="player")return;
+let queued=-1;
+$("enemyBoard").addEventListener("click",e=>{
+  const b=e.target.closest(".cell");if(!b||phase!=="play")return;
   const i=+b.dataset.i;if(enemy.shots[i]!==0)return;
-  if(mode==="duo"){duoShoot(i,b);return}
+  // Während der eigene Schuss noch fliegt: nächstes Ziel vormerken statt den Tipp zu verlieren
+  if(turn==="anim"||turn==="wait"){if(!(mode==="duo"&&duo&&duo.myShots.includes(i))){queued=queued===i?-1:i;SFX.click();render()}return}
+  if(turn!=="player")return;
+  if(mode==="duo"){if(duo.myShots.includes(i))return;duoShoot(i,b);return}
+  cpuShoot(i,b);
+});
+function fireQueued(){
+  const q=queued;queued=-1;if(q<0||phase!=="play"||turn!=="player"||enemy.shots[q]!==0)return;
+  if(mode==="duo"){if(!duo||duo.myShots.includes(q))return;duoShoot(q,eCells[q])}else cpuShoot(q,eCells[q]);
+}
+async function cpuShoot(i,b){
   const g=game;turn="anim";render();status(`Schuss auf ${coord(i)} …`);
   SFX[weapon]();await launch($("playerBoard"),b,weapon);if(g!==game)return;
   const r=fire(enemy,i);shots++;lastPlayer=i;impact(b,r);scoreShot(r,b);
   if(r.result==="hit")say("youHit",.35);else if(r.result==="sunk"&&!allSunk(enemy))say("youSink");
-  if(r.result==="miss"){log(`Du: ${coord(i)} – Wasser.`,"me");turn="cpu";status("Wasser. Der Gegner zielt …");render();await wait(700);if(g===game)cpuTurn(g);return}
+  if(r.result==="miss"){queued=-1;log(`Du: ${coord(i)} – Wasser.`,"me");turn="cpu";status("Wasser. Der Gegner zielt …");render();await wait(700);if(g===game)cpuTurn(g);return}
   hits++;
   if(r.result==="sunk"){log(`Du: ${coord(i)} – ${r.ship.name} versenkt!`,"big");
-    if(allSunk(enemy)){phase="over";turn=null;view="enemy";status(`Sieg! Gegnerische Flotte in ${shots} Schüssen versenkt.`+finishScore(true),"win");say("theyLose");log("Sieg.","big");render();setTimeout(()=>{if(g===game)SFX.win()},700);return}
+    if(allSunk(enemy)){queued=-1;phase="over";turn=null;view="enemy";status(`Sieg! Gegnerische Flotte in ${shots} Schüssen versenkt.`+finishScore(true),"win");say("theyLose");log("Sieg.","big");render();setTimeout(()=>{if(g===game)SFX.win()},700);return}
     status(`${r.ship.name} versenkt! Nochmal schiessen.`)}
   else{log(`Du: ${coord(i)} – Treffer.`,"me");status("Treffer! Nochmal schiessen.")}
-  turn="player";render();
-});
+  turn="player";render();fireQueued();
+}
 async function cpuTurn(g){
   if(phase!=="play"||g!==game)return;
   const blind=silent.left>0,i=blind?randomOpen(player):[aiPickRecruit,aiPick,aiPickAdmiral][diff](player);status(`Gegner feuert auf ${coord(i)} …`);await showOwnFirst();if(g!==game)return;
@@ -1132,7 +1225,7 @@ function peerTransport(code,role,onState){
 }
 function duoNote(t){$("duoNote").textContent=t;status(t)}
 function loadDuo(){try{const s=JSON.parse(store.get("sv-duo")||"null");return s&&Date.now()-s.t<6*3600e3?s:null}catch(e){return null}}
-function saveDuo(){if(!duo)return;store.set("sv-duo",JSON.stringify({code:duo.code,role:duo.role,tok:duo.tok,round:duo.round,baseRole:duo.baseRole,ready:duo.ready,myShots:duo.myShots,myRes:duo.myRes,player:{ships:player.ships,grid:player.grid,shots:player.shots},t:Date.now()}))}
+function saveDuo(){if(!duo)return;store.set("sv-duo",JSON.stringify({chatOut:duo.chatOut,seen:[...duo.seen].slice(-40),code:duo.code,role:duo.role,tok:duo.tok,round:duo.round,baseRole:duo.baseRole,ready:duo.ready,myShots:duo.myShots,myRes:duo.myRes,player:{ships:player.ships,grid:player.grid,shots:player.shots},t:Date.now()}))}
 function leaveDuo(forget){
   if(duo){try{duo.unsub&&duo.unsub()}catch(e){}duo.room.leave().catch(()=>{});duo=null}
   if(forget)store.set("sv-duo","");
@@ -1143,7 +1236,7 @@ async function startDuo(code,role,saved){
   let nr;try{nr=await peerTransport(code,role,t=>{if(duo){duo.net=t;render()}})}catch(e){
     duoNote(e&&e.code==="no_lib"?"Die Verbindungstechnik konnte nicht laden. Prüf die Internetverbindung und lade die Seite neu.":`Verbindung fehlgeschlagen (${e&&e.code||"Fehler"}). Prüf die Internetverbindung und versuch es nochmal.`);return}
   resetBattle();mode="duo";enemy=makeSide();
-  duo={code,role,round:(saved&&saved.round)||0,baseRole:(saved&&saved.baseRole)||null,oppRound:0,hideIn:-1,tok:(saved&&saved.tok)||Math.random().toString(36).slice(2,10),net:nr.netState||"",room:nr,myShots:[],myRes:[],ready:false,enqOpp:0,enqMine:0,doneMine:0,jobs:[],busy:false,pendingAnim:null,
+  duo={chatOut:(saved&&saved.chatOut)||[],seen:new Set((saved&&saved.seen)||[]),unread:0,oppName:"Gegner",chatN:0,code,role,round:(saved&&saved.round)||0,baseRole:(saved&&saved.baseRole)||null,oppRound:0,hideIn:-1,tok:(saved&&saved.tok)||Math.random().toString(36).slice(2,10),net:nr.netState||"",room:nr,myShots:[],myRes:[],ready:false,enqOpp:0,enqMine:0,doneMine:0,jobs:[],busy:false,pendingAnim:null,
        oppOnline:false,oppReady:false,oppShots:[],oppRes:[],oppFleet:null,reveal:false,lastMsg:"",finished:false};
   if(saved){
     player=makeSide();Object.assign(player,saved.player);
@@ -1158,7 +1251,7 @@ async function startDuo(code,role,saved){
 }
 function pushPresence(){
   if(!duo)return;
-  duo.room.presence({v:1,round:duo.round,tok:duo.tok,role:duo.role,ready:duo.ready,shots:duo.myShots,res:duo.myRes,fleet:duo.reveal?player.ships.map(s=>s.cells):null}).catch(()=>{});
+  duo.room.presence({v:1,chat:duo.chatOut,fname:fleetName.slice(0,28),round:duo.round,tok:duo.tok,role:duo.role,ready:duo.ready,shots:duo.myShots,res:duo.myRes,fleet:duo.reveal?player.ships.map(s=>s.cells):null}).catch(()=>{});
 }
 function effRole(){const b=duo.baseRole||duo.role;return duo.round%2===0?b:(b==="host"?"guest":"host")}
 // Neue Runde im selben Raum: Flotte neu aufstellen, abwechselnd beginnt der andere
@@ -1183,12 +1276,17 @@ function beginDuo(){
 const okCell=c=>Number.isInteger(c)&&c>=0&&c<N*N;
 function sync(){
   if(!duo)return;
-  const o=opponent();duo.oppOnline=!!o;
+  const o=opponent(),wasOn=duo.oppOnline,wasReady=duo.oppReady;duo.oppOnline=!!o;
+  if(!wasOn&&duo.oppOnline&&phase==="setup")toast("Gegner ist verbunden.");
   if(o){
     const P=o.presence,oR=+P.round||0;duo.oppRound=oR;
+    if(typeof P.fname==="string"&&cleanMsg(P.fname))duo.oppName=cleanMsg(P.fname).slice(0,28);
+    if(Array.isArray(P.chat))P.chat.slice(-10).forEach(m=>{if(!m||typeof m.i!=="string"||typeof m.t!=="string"||duo.seen.has(m.i))return;duo.seen.add(m.i);const t=cleanMsg(m.t);if(!t)return;
+      log(`${esc(duo.oppName)}: «${esc(t)}»`,"funk");toast(`Funk: ${t}`);if($("radio").hidden)duo.unread++;SFX.click();saveDuo()});
     if(typeof P.tok==="string"&&P.tok&&P.tok!==duo.tok){duo.baseRole=duo.tok<P.tok?"host":"guest";const r=effRole();if(r!==duo.role){duo.role=r;saveDuo()}}
     if(oR===duo.round){
       duo.oppReady=!!P.ready;
+      if(!wasReady&&duo.oppReady&&phase==="setup"&&!duo.ready){toast("Dein Gegner ist bereit.");SFX.click()}
       duo.oppShots=Array.isArray(P.shots)?P.shots:[];duo.oppRes=Array.isArray(P.res)?P.res:[];
       if(Array.isArray(P.fleet))duo.oppFleet=P.fleet;
       if(phase==="setup"&&duo.ready&&duo.oppReady)beginDuo();
@@ -1266,6 +1364,7 @@ function afterStep(){
   const w=duo.role==="host"?whoseTurn(mine,myAns,theirs,theirAns):whoseTurn(theirs,theirAns,mine,myAns);
   const prevTurn=turn;turn=w==="wait"?"wait":w===duo.role?"player":"opp";
   if(turn==="player"&&prevTurn!=="player"&&view==="own")backToEnemy(game);
+  if(turn==="player"&&queued>=0)setTimeout(fireQueued,0);else if(turn==="opp")queued=-1;
   const pre=duo.lastMsg?duo.lastMsg+" ":"";
   if(!duo.oppOnline)status(pre+"Gegner ist gerade offline. Sobald er die Partie fortsetzt, geht's weiter.");
   else if(turn==="player")status(pre+"Dein Zug: Tippe ein Feld im gegnerischen Gewässer.");
