@@ -797,10 +797,10 @@ function renderDock(){
     :`<li class="done">Alle fünf Schiffe stehen. Bereit zum Gefecht.</li>`;
   ["random","clear"].forEach(id=>$(id).disabled=locked);
   $("lobby").hidden=mode!=="duo";
-  $("invite").hidden=!(mode==="duo"&&duo&&duo.role==="host"&&!duo.oppOnline);
+  $("invite").hidden=!(mode==="duo"&&duo&&!duo.oppOnline);
   if(mode==="duo"&&duo){
     $("roomCode").textContent=duo.code;
-    $("oppState").textContent=!duo.oppOnline?"Warte auf das zweite Gerät …":duo.oppReady?"Gegner ist bereit.":"Gegner ist da und stellt auf …";
+    $("oppState").textContent=!duo.oppOnline?(duo.net||"Warte auf das zweite Gerät …"):duo.oppReady?"Gegner ist bereit.":"Gegner ist da und stellt auf …";
     $("start").textContent=duo.ready?"Warte auf Gegner …":"Bereit";
     $("start").disabled=!!open.length||duo.ready;
   }else{$("start").textContent="Gefecht starten";$("start").disabled=!!open.length}
@@ -994,53 +994,65 @@ async function cpuTurn(g){
 const CODE_CHARS="ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 // Direkte Verbindung Gerät zu Gerät über WebRTC (PeerJS). Der PeerJS-Vermittlungsdienst stellt nur den Kontakt her,
 // die Spieldaten (nur Schüsse und Ergebnisse) laufen direkt zwischen den beiden Geräten.
+// Beide Geräte sind gleichberechtigt: Wer zuerst da ist, öffnet den Raum, das andere verbindet sich.
 const PEER_PREFIX="schiffe-versenken-ch-v1-";
-function peerTransport(code,role){
+function peerTransport(code,role,onState){
   return new Promise((resolve,reject)=>{
     if(typeof Peer==="undefined"){reject({code:"no_lib"});return}
     const hostId=PEER_PREFIX+code.toLowerCase(),handlers=new Set();
-    let mine={},theirs=null,conn=null,peer=null,closed=false,settled=false,retry=0;
+    let mine={},theirs=null,conn=null,peer=null,asHost=false,closed=false,settled=false,misses=0,gen=0,openTimer=null;
     const notify=()=>handlers.forEach(h=>{try{h()}catch(e){}});
+    const state=t=>{api.netState=t;try{onState&&onState(t)}catch(e){}};
     const sendMine=()=>{if(conn&&conn.open){try{conn.send({t:"p",p:mine})}catch(e){}}};
     function attach(c){
       if(conn&&conn!==c){try{conn.close()}catch(e){}}
-      conn=c;
-      c.on("open",()=>{sendMine();notify()});
+      conn=c;clearTimeout(openTimer);
+      openTimer=setTimeout(()=>{if(conn===c&&!c.open)state("Keine Direktverbindung möglich. Das WLAN blockiert sie vermutlich. Wechsle ins Mobilfunknetz und lade neu.")},15000);
+      c.on("open",()=>{clearTimeout(openTimer);state("Verbunden.");sendMine();notify()});
       c.on("data",d=>{if(d&&typeof d==="object"&&d.t==="p"&&d.p&&typeof d.p==="object"&&!Array.isArray(d.p)){theirs=d.p;notify()}});
-      c.on("close",()=>{if(conn===c){conn=null;theirs=null;notify();if(role==="guest"&&!closed)setTimeout(connectToHost,1500)}});
+      c.on("close",()=>{if(conn===c){conn=null;theirs=null;state("Verbindung unterbrochen. Verbinde neu …");notify();if(!asHost&&!closed)setTimeout(connectToHost,1500)}});
+      c.on("iceStateChanged",st=>{if(st==="failed")state("Keine Direktverbindung möglich. Das WLAN blockiert sie vermutlich. Wechsle ins Mobilfunknetz und lade neu.")});
       c.on("error",()=>{});
     }
     function connectToHost(){
-      if(closed||!peer||peer.destroyed||(conn&&conn.open))return;
+      if(closed||asHost||!peer||peer.destroyed||(conn&&conn.open))return;
       if(peer.disconnected){try{peer.reconnect()}catch(e){}}
+      state("Suche den Raum …");
       try{attach(peer.connect(hostId,{reliable:true}))}catch(e){}
     }
-    function create(){
-      peer=role==="host"?new Peer(hostId):new Peer();
-      peer.on("open",()=>{if(role==="guest")connectToHost();if(!settled){settled=true;resolve(api)}});
-      peer.on("connection",c=>{if(role!=="host"||(conn&&conn.open)){try{c.close()}catch(e){}return}attach(c)});
-      peer.on("disconnected",()=>{if(!closed)setTimeout(()=>{try{peer.reconnect()}catch(e){}},1500)});
-      peer.on("error",e=>{
+    function create(tryHost){
+      const my=++gen;asHost=tryHost;
+      try{peer&&peer.destroy()}catch(e){}
+      peer=tryHost?new Peer(hostId):new Peer();
+      peer.on("open",()=>{if(my!==gen)return;
+        if(asHost)state("Raum ist offen. Warte auf das zweite Gerät …");else connectToHost();
+        if(!settled){settled=true;resolve(api)}});
+      peer.on("connection",c=>{if(my!==gen)return;if(!asHost||(conn&&conn.open)){try{c.close()}catch(e){}return}state("Gerät gefunden, verbinde …");attach(c)});
+      peer.on("disconnected",()=>{if(my===gen&&!closed)setTimeout(()=>{try{peer.reconnect()}catch(e){}},1500)});
+      peer.on("error",e=>{if(my!==gen)return;
         const t=e&&e.type;
-        if(t==="unavailable-id"&&role==="host"&&retry<12){retry++;try{peer.destroy()}catch(_){}setTimeout(create,2500);return}
-        if(t==="peer-unavailable"){if(!closed)setTimeout(connectToHost,2500);return}
-        if(t==="network"||t==="server-error"||t==="socket-error"||t==="socket-closed"){if(settled&&!closed)setTimeout(()=>{try{peer.reconnect()}catch(_){}},2500)}
+        if(t==="unavailable-id"){create(false);return}               // Raum gibt es schon: beitreten
+        if(t==="peer-unavailable"){                                    // Raum gibt es (noch) nicht
+          if(++misses>=2){misses=0;create(true);return}               // dann selbst öffnen
+          if(!closed)setTimeout(connectToHost,2000);return}
+        if(t==="network"||t==="server-error"||t==="socket-error"||t==="socket-closed"){state("Keine Verbindung zum Vermittlungsdienst. Prüf das Internet.");if(settled&&!closed)setTimeout(()=>{try{peer.reconnect()}catch(_){}},2500)}
         if(!settled){settled=true;reject({code:t||"Fehler"})}
       });
     }
     const api={
+      netState:"",
       presence(p){Object.assign(mine,p);sendMine();notify();return Promise.resolve()},
       peers(){const a=[{sameTab:true,presence:mine}];if(conn&&conn.open&&theirs)a.push({sameTab:false,presence:theirs});return a},
       onPeers(h){handlers.add(h);return()=>handlers.delete(h)},
-      leave(){closed=true;try{conn&&conn.close()}catch(e){}try{peer&&peer.destroy()}catch(e){}return Promise.resolve()}
+      leave(){closed=true;clearTimeout(openTimer);try{conn&&conn.close()}catch(e){}try{peer&&peer.destroy()}catch(e){}return Promise.resolve()}
     };
-    create();
+    create(true);
     setTimeout(()=>{if(!settled){settled=true;reject({code:"timeout"})}},20000);
   });
 }
 function duoNote(t){$("duoNote").textContent=t;status(t)}
 function loadDuo(){try{const s=JSON.parse(store.get("sv-duo")||"null");return s&&Date.now()-s.t<6*3600e3?s:null}catch(e){return null}}
-function saveDuo(){if(!duo)return;store.set("sv-duo",JSON.stringify({code:duo.code,role:duo.role,ready:duo.ready,myShots:duo.myShots,myRes:duo.myRes,player:{ships:player.ships,grid:player.grid,shots:player.shots},t:Date.now()}))}
+function saveDuo(){if(!duo)return;store.set("sv-duo",JSON.stringify({code:duo.code,role:duo.role,tok:duo.tok,ready:duo.ready,myShots:duo.myShots,myRes:duo.myRes,player:{ships:player.ships,grid:player.grid,shots:player.shots},t:Date.now()}))}
 function leaveDuo(forget){
   if(duo){try{duo.unsub&&duo.unsub()}catch(e){}duo.room.leave().catch(()=>{});duo=null}
   if(forget)store.set("sv-duo","");
@@ -1048,10 +1060,10 @@ function leaveDuo(forget){
 async function startDuo(code,role,saved){
   duoNote("Verbinde …");
   leaveDuo(false);
-  let nr;try{nr=await peerTransport(code,role)}catch(e){
+  let nr;try{nr=await peerTransport(code,role,t=>{if(duo){duo.net=t;render()}})}catch(e){
     duoNote(e&&e.code==="no_lib"?"Die Verbindungstechnik konnte nicht laden. Prüf die Internetverbindung und lade die Seite neu.":`Verbindung fehlgeschlagen (${e&&e.code||"Fehler"}). Prüf die Internetverbindung und versuch es nochmal.`);return}
   resetBattle();mode="duo";enemy=makeSide();
-  duo={code,role,room:nr,myShots:[],myRes:[],ready:false,enqOpp:0,enqMine:0,doneMine:0,jobs:[],busy:false,pendingAnim:null,
+  duo={code,role,tok:(saved&&saved.tok)||Math.random().toString(36).slice(2,10),net:nr.netState||"",room:nr,myShots:[],myRes:[],ready:false,enqOpp:0,enqMine:0,doneMine:0,jobs:[],busy:false,pendingAnim:null,
        oppOnline:false,oppReady:false,oppShots:[],oppRes:[],oppFleet:null,reveal:false,lastMsg:"",finished:false};
   if(saved){
     player=makeSide();Object.assign(player,saved.player);
@@ -1066,7 +1078,7 @@ async function startDuo(code,role,saved){
 }
 function pushPresence(){
   if(!duo)return;
-  duo.room.presence({v:1,role:duo.role,ready:duo.ready,shots:duo.myShots,res:duo.myRes,fleet:duo.reveal?player.ships.map(s=>s.cells):null}).catch(()=>{});
+  duo.room.presence({v:1,tok:duo.tok,role:duo.role,ready:duo.ready,shots:duo.myShots,res:duo.myRes,fleet:duo.reveal?player.ships.map(s=>s.cells):null}).catch(()=>{});
 }
 function opponent(){return duo?duo.room.peers().find(p=>!p.sameTab&&p.presence&&p.presence.v===1):null}
 function duoReady(){
@@ -1084,6 +1096,7 @@ function sync(){
   const o=opponent();duo.oppOnline=!!o;
   if(o){
     const P=o.presence;duo.oppReady=!!P.ready;
+    if(typeof P.tok==="string"&&P.tok&&P.tok!==duo.tok){const r=duo.tok<P.tok?"host":"guest";if(r!==duo.role){duo.role=r;saveDuo()}}
     duo.oppShots=Array.isArray(P.shots)?P.shots:[];duo.oppRes=Array.isArray(P.res)?P.res:[];
     if(Array.isArray(P.fleet))duo.oppFleet=P.fleet;
     if(phase==="setup"&&duo.ready&&duo.oppReady)beginDuo();
