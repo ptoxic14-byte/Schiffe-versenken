@@ -128,6 +128,37 @@ h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:26px;line-hei
 .scorebar .streak{color:var(--hit)}
 .board{-webkit-touch-callout:none}
 .app:not(.playing) #playerBoard{touch-action:none}
+.pix{image-rendering:pixelated;image-rendering:crisp-edges;display:block}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.idcard{border-color:var(--ink);background:linear-gradient(180deg,color-mix(in srgb,var(--ink) 6%,var(--paper)),var(--paper))}
+.id-top{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center}
+.portrait{width:96px;height:96px;border:1px solid var(--grid);box-shadow:0 0 10px color-mix(in srgb,var(--ink) 25%,transparent)}
+.id-info{display:grid;gap:5px;min-width:0}
+.fleetrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center}
+.emblem{width:44px;height:44px}
+.fleetrow input{min-width:0;font-family:var(--f-display);font-size:24px;line-height:1;padding:6px 8px;border:1px solid var(--grid);border-radius:3px;background:var(--sea);color:var(--ink)}
+.fleetrow input:focus-visible{outline:2px solid var(--signal);outline-offset:1px}
+.idstats{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:4px 12px;font-size:12px;font-variant-numeric:tabular-nums}
+.idstats li{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dotted var(--grid);padding-bottom:2px}
+.idstats b{font-weight:600;color:var(--signal)}
+.cmdr{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;padding:8px;border:1px solid var(--hit-soft);border-radius:3px}
+.cmdrpic{width:64px;height:64px;border:1px solid var(--hit-soft)}
+.cmdrname{font-family:var(--f-display);font-size:22px;line-height:1;color:var(--hit);letter-spacing:.03em}
+.cmdr .hint{font-style:italic}
+.ttl{display:flex;align-items:center;gap:8px;min-width:0}
+.ttl h2{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mini{width:26px;height:26px;flex:none}
+.log li.cmdr{color:color-mix(in srgb,var(--hit) 70%,var(--ink));font-style:italic}
+.silentbtn{font-family:var(--f-body);font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:5px 10px;border-color:var(--hit);color:var(--hit)}
+.silentbtn.on{background:var(--hit-soft);box-shadow:0 0 12px var(--hit)}
+.silentbtn.pulse{animation:btnpulse 1s ease-in-out infinite}
+@keyframes btnpulse{50%{box-shadow:0 0 16px var(--hit);background:var(--hit-soft)}}
+.silent-ov{position:fixed;inset:0;pointer-events:none;z-index:39;opacity:0;transition:opacity 1.4s;background:radial-gradient(ellipse at center,rgba(255,30,10,.05) 30%,rgba(110,0,0,.55) 100%)}
+body.silent .silent-ov{opacity:1;animation:redpulse 2.6s ease-in-out infinite}
+body.silent .app{filter:hue-rotate(-115deg) brightness(.85);transition:filter 1.4s}
+.app{transition:filter 1.4s}
+@keyframes redpulse{50%{opacity:.65}}
+@media (prefers-reduced-motion:reduce){.silentbtn.pulse,body.silent .silent-ov{animation:none}}
 .log{background:var(--paper);border:1px solid var(--grid);border-radius:4px;padding:14px;display:grid;gap:8px}
 .log-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
 .log ol{list-style:none;margin:0;padding:0;font-size:13px;display:grid;gap:3px;max-height:9.5em;overflow-y:auto}
@@ -170,6 +201,7 @@ h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:26px;line-hei
 @media (prefers-reduced-motion:reduce){.crt{animation:none}.app.shake{animation:none}.panel{transition:none}}
 </style>
 
+<div class="silent-ov" aria-hidden="true"></div>
 <div class="crt" aria-hidden="true"></div>
 <canvas id="fx" aria-hidden="true"></canvas>
 
@@ -193,21 +225,39 @@ h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:26px;line-hei
     <button id="viewEnemy" aria-pressed="true">Gegner</button>
     <button id="viewOwn" aria-pressed="false">Meine Flotte</button>
   </div>
-  <div class="scorebar"><span>Punkte <b id="scPts">0</b></span><span class="streak" id="scStreak"></span><span>Rekord <b id="scBest">–</b></span></div>
+  <div class="scorebar"><span>Punkte <b id="scPts">0</b></span><span class="streak" id="scStreak"></span><span>Rekord <b id="scBest">–</b></span><button id="silent" class="btn silentbtn" type="button">Schleichfahrt</button></div>
 
   <main class="boards">
     <section class="menu" id="menuPanel">
+      <div class="panel idcard">
+        <p class="box-kicker">Dienstausweis</p>
+        <div class="id-top">
+          <canvas id="portrait" width="32" height="32" class="pix portrait" role="img" aria-label="Passfoto"></canvas>
+          <div class="id-info">
+            <div class="rankname" id="rankName">Matrose</div>
+            <span class="count" id="rankPts"></span>
+            <div class="meter"><i id="rankBar"></i></div>
+            <span class="hint" id="rankNext"></span>
+          </div>
+        </div>
+        <div class="fleetrow">
+          <canvas id="emblem" width="32" height="32" class="pix emblem" aria-hidden="true"></canvas>
+          <label class="sr-only" for="fleetName">Name deiner Flotte</label>
+          <input id="fleetName" maxlength="28" autocomplete="off" spellcheck="false">
+          <button id="dice" class="btn" type="button">Würfeln</button>
+        </div>
+        <ul class="idstats" id="idStats"></ul>
+      </div>
+
       <div class="panel">
         <p class="box-kicker">Allein</p>
         <h2>Gegen den Computer</h2>
-        <div class="rankcard">
-          <div class="rankrow"><span class="code-lbl">Dein Rang</span><span class="count" id="rankPts"></span></div>
-          <div class="rankname" id="rankName">Matrose</div>
-          <div class="meter"><i id="rankBar"></i></div>
-          <span class="hint" id="rankNext"></span>
-        </div>
         <div class="seg" id="diff" role="group" aria-label="Schwierigkeit">
           <button data-d="0">Rekrut</button><button data-d="1">Offizier</button><button data-d="2">Admiral</button>
+        </div>
+        <div class="cmdr">
+          <canvas id="cmdrPortrait" width="32" height="32" class="pix cmdrpic" role="img" aria-label="Gegnerischer Kommandant"></canvas>
+          <div><div class="cmdrname" id="cmdrName"></div><p class="hint" id="cmdrQuote"></p></div>
         </div>
         <p class="hint" id="diffInfo"></p>
         <button id="modeCpu" class="btn primary">Gefecht starten</button>
@@ -229,7 +279,7 @@ h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:26px;line-hei
     </section>
 
     <section class="panel" id="playerPanel" hidden>
-      <div class="panel-head"><h2>Deine Flotte</h2><span class="count" id="playerCount"></span></div>
+      <div class="panel-head"><div class="ttl"><canvas id="emblemMini" width="32" height="32" class="pix mini" aria-hidden="true"></canvas><h2 id="playerTitle">Deine Flotte</h2></div><span class="count" id="playerCount"></span></div>
       <div class="board" id="playerBoard"></div>
       <ul class="fleet" id="playerFleet"></ul>
     </section>
@@ -247,7 +297,7 @@ h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:26px;line-hei
     </section>
 
     <section class="panel" id="enemyPanel" hidden>
-      <div class="panel-head"><h2 id="enemyTitle">Gegnerisches Gewässer</h2><span class="count" id="enemyCount"></span></div>
+      <div class="panel-head"><div class="ttl"><canvas id="cmdrMini" width="32" height="32" class="pix mini" aria-hidden="true"></canvas><h2 id="enemyTitle">Gegnerisches Gewässer</h2></div><span class="count" id="enemyCount"></span></div>
       <div class="board enemy" id="enemyBoard"></div>
       <ul class="fleet" id="enemyFleet"></ul>
     </section>
@@ -387,7 +437,10 @@ const RECIPES={
   lose:notes("sine",[392,330,262,196,131],.26,.25,.2),
   click:[T("sine",880,880,.04,.08)],
   start:[T("tri",440,880,.2,.15)],
-  test:notes("tri",[523,659,784],.14,.2,.1)
+  test:notes("tri",[523,659,784],.14,.2,.1),
+  ping:[T("sine",1250,1190,1.4,.22),T("sine",1250,1190,1.1,.07,.5)],
+  heart:[T("sine",72,45,.18,.55),T("sine",66,40,.2,.42,.24)],
+  creak:[Z(1.2,.25,240),T("saw",92,58,1.3,.07),T("tri",140,92,.9,.06,.35)]
 };
 const POOL={};let unlocked=false;
 for(const k in RECIPES){const url=wav(synth(RECIPES[k]));POOL[k]={i:0,els:[0,1,2].map(()=>{const a=new Audio(url);a.preload="auto";a.setAttribute("playsinline","");return a})}}
@@ -533,6 +586,7 @@ function scoreShot(r,cellEl){
   floatText(cellEl,"+"+fmt(base+combo+sunk)+(score.streak>1?"  ×"+score.streak:""));
 }
 function finishScore(won){
+  stopSilent();store.set("sv-games",String((+(store.get("sv-games")||0)||0)+1));if(won)store.set("sv-wins",String((+(store.get("sv-wins")||0)||0)+1));
   const m=mode==="duo"?1:DIFF[diff].mult;
   if(won){score.effPts=Math.max(0,80-shots)*25*m;score.winPts=1000*m;score.pts+=score.effPts+score.winPts}
   const before=career(),after=before+score.pts;store.set("sv-career",String(Math.round(after)));
@@ -562,6 +616,107 @@ function renderResult(){
   $("resAgain").hidden=!cpu;$("resAgain").textContent=R.won?"Nochmal":"Revanche";
   $("resUp").hidden=!(cpu&&R.won&&R.diff<2);if(!$("resUp").hidden)$("resUp").textContent=`Eine Stufe höher: ${DIFF[R.diff+1].name}`;
   $("resMenu").className=cpu?"btn":"btn primary";
+}
+
+// ================= Dienstausweis: Passfoto, Wappen, Kommandanten =================
+const PAL_G={bg:"#0b1c11",skin:"#7fe39a",shade:"#3f9a5a",dark:"#06120a",uni:"#1f5a33",uni2:"#143a22",white:"#d6ffe0",gold:"#e9ff7a",hair:"#2c6b3f"};
+const PAL_A={bg:"#1c1408",skin:"#ffc46b",shade:"#b97a2a",dark:"#120b03",uni:"#5a3a12",uni2:"#3d270b",white:"#fff0d6",gold:"#fff27a",hair:"#7a4f17"};
+// Pixel-Porträt 32x32. tier = Rang 0 (Matrose) bis 6 (Admiral)
+function drawPortrait(cv,tier,P,o={}){
+  const x=cv.getContext("2d"),r=(c,a,b,w,h)=>{x.fillStyle=c;x.fillRect(a,b,w,h)},off=tier>=3;
+  r(P.bg,0,0,32,32);for(let y=1;y<32;y+=3)r(P.uni2,0,y,32,1);
+  r(P.uni,3,25,26,7);r(P.uni,6,23,20,2);r(P.shade,13,20,6,5);
+  if(off){
+    r(P.uni2,11,23,2,9);r(P.uni2,19,23,2,9);r(P.white,13,23,6,4);r(P.white,14,27,4,1);r(P.dark,15,24,2,6);
+    r(P.uni2,3,25,7,2);r(P.uni2,22,25,7,2);
+    for(let k=0;k<Math.min(3,tier-2);k++){r(P.gold,4+k*2,25,1,2);r(P.gold,27-k*2,25,1,2)}
+    if(tier>=6){for(let k=0;k<4;k++){r(P.gold,3+k*2,27,1,2);r(P.gold,22+k*2,27,1,2)}}
+    if(tier>=5){r(P.white,7,28,2,1);r(P.gold,7,29,2,2)}
+    if(tier>=6){r(P.white,10,28,2,1);r(P.gold,10,29,2,2)}
+  }else{
+    r(P.white,7,23,18,2);r(P.uni2,7,24,18,1);r(P.shade,14,23,4,2);r(P.dark,15,25,2,2);
+    if(tier>=1){r(P.gold,23,28,1,3);r(P.gold,22,30,3,1);r(P.gold,22,28,3,1)}
+    if(tier>=2){for(let k=0;k<5;k++)r(P.gold,8+k,26+k,1,1)}
+  }
+  r(P.skin,10,10,12,12);r(P.skin,12,22,8,1);r(P.shade,20,12,2,9);r(P.shade,12,21,8,1);
+  r(P.skin,9,14,1,4);r(P.shade,22,14,1,4);
+  r(P.hair,10,10,2,4);r(P.hair,20,10,2,4);if(o.hairLong){r(P.hair,9,10,2,11);r(P.hair,21,10,2,11)}
+  r(P.dark,12,13,3,1);r(P.dark,17,13,3,1);r(P.white,12,15,2,1);r(P.white,17,15,2,1);r(P.dark,13,15,1,1);r(P.dark,18,15,1,1);
+  r(P.shade,15,15,2,3);r(P.shade,14,17,4,1);r(P.dark,14,19,4,1);
+  if(o.smirk)r(P.dark,18,18,1,1);
+  if(o.beard){r(P.hair,11,18,10,4);r(P.hair,12,22,8,1);r(P.dark,14,19,4,1)}
+  if(o.glasses){[11,17].forEach(gx=>{r(P.dark,gx,14,4,1);r(P.dark,gx,17,4,1);r(P.dark,gx,14,1,4);r(P.dark,gx+3,14,1,4)});r(P.dark,15,15,2,1)}
+  if(o.monocle){r(P.gold,17,14,4,1);r(P.gold,17,17,4,1);r(P.gold,17,14,1,4);r(P.gold,20,14,1,4);r(P.gold,21,18,1,4)}
+  if(o.sweat){r(P.white,9,11,1,2);r(P.white,8,13,1,1)}
+  if(!off){r(P.white,9,6,14,4);r(P.white,10,5,12,1);r(P.dark,9,9,14,1);r(P.dark,22,9,2,4);r(P.dark,23,13,1,1)}
+  else{r(P.white,8,4,16,3);r(P.white,9,3,14,1);r(P.uni2,8,7,16,2);r(tier>=4?P.gold:P.dark,9,7,14,1);r(P.gold,15,5,2,3);r(P.dark,9,9,14,1);if(tier>=6)r(P.gold,10,9,12,1)}
+}
+const SYMBOLS=[
+ ["....####....","....#..#....","....####....",".....##.....","..########..",".....##.....",".....##.....",".....##.....",".....##.....","#....##....#","##...##...##",".##..##..##.","..########..","....####...."],
+ ["#....##....#","#....##....#","#....##....#","##...##...##",".##########.","..########..",".....##.....",".....##.....",".....##.....",".....##.....",".....##.....",".....##.....","....####....",".....##....."],
+ [".....##.....",".....##.....","....####....","....####....","############",".##########.","..########..","...######...","...######...","..###..###..","..##....##..",".##......##.","............","............"]];
+function hashStr(t){let h=2166136261;for(const ch of t){h^=ch.codePointAt(0);h=Math.imul(h,16777619)}return h>>>0}
+function drawEmblem(cv,name,P){
+  const x=cv.getContext("2d"),r=(c,a,b,w,h)=>{x.fillStyle=c;x.fillRect(a,b,w,h)},h=hashStr(name||"Flotte");
+  x.clearRect(0,0,32,32);
+  for(let y=1;y<31;y++){const w=y<20?26:Math.max(2,26-Math.round((y-20)*2.4)),x0=Math.round(16-w/2);r(P.gold,x0,y,w,1)}
+  for(let y=2;y<30;y++){const w=y<20?24:Math.max(0,24-Math.round((y-20)*2.4)-1),x0=Math.round(16-w/2);r(P.uni2,x0,y,w,1)}
+  const acc=(h>>4)%3;if(acc===1)r(P.uni,4,20,24,2);if(acc===2){r(P.gold,7,4,2,2);r(P.gold,23,4,2,2)}
+  const sym=SYMBOLS[h%3],col=[P.gold,P.white,P.skin][(h>>8)%3];
+  sym.forEach((row,yy)=>[...row].forEach((c,xx)=>{if(c==="#")r(col,10+xx,6+yy,1,1)}));
+}
+const FLEET_A=["Flotte","Geschwader","Verband","Kampfgruppe","Division"];
+const FLEET_B=["Eisvogel","Nordwind","Seeadler","Sturmmöwe","Tiefsee","Polarstern","Brandung","Leuchtfeuer","Orca","Nebelhorn","Hammerhai","Kraken","Gletscher","Morgenrot","Donnerhall","Silberfisch"];
+const randomFleet=()=>FLEET_A[rand(FLEET_A.length)]+" "+FLEET_B[rand(FLEET_B.length)];
+let fleetName=(store.get("sv-fleet")||"").trim();if(!fleetName){fleetName=randomFleet();store.set("sv-fleet",fleetName)}
+const CMDR=[
+ {name:"Kadett Pelle Nebelkamm",short:"Kadett Nebelkamm",tier:1,opts:{sweat:true},motto:"«Ich hab das im Simulator geübt. Zweimal.»",q:{
+  start:["Äh … ist das schon der Ernstfall?","Ich hab das im Simulator geübt. Zweimal."],
+  theyHit:["Oh! Hab ich das getroffen? Echt jetzt?","Treffer! Glaub ich. Ja, Treffer!"],
+  theySink:["Ich hab was versenkt! Mama wird stolz sein!"],
+  youHit:["Aua! Das war mein Lieblingsschiff!","Hey, nicht so fest!"],
+  youSink:["Das … das darf ich nicht melden.","Okay, kein Grund zur Panik. Doch, Panik!"],
+  theyWin:["Ich hab gewonnen?! Kann mir das jemand schriftlich geben?"],
+  theyLose:["Ich glaube, ich melde mich zurück zur Kombüse."],
+  silent:["Wo … wo sind die hin?"]}},
+ {name:"Korvettenkapitänin Ada Stahlberg",short:"Kapitänin Stahlberg",tier:4,opts:{glasses:true,hairLong:true},motto:"«Ich habe Ihre Akte gelesen. Zeigen Sie mir, dass sie stimmt.»",q:{
+  start:["Gefechtsstation besetzt. Beginnen Sie.","Ich habe Ihre Akte gelesen. Zeigen Sie mir, dass sie stimmt."],
+  theyHit:["Treffer bestätigt.","Wie berechnet."],
+  theySink:["Ziel neutralisiert. Nächstes.","Das war vorhersehbar."],
+  youHit:["Notiert. Schadenskontrolle läuft.","Ein Glückstreffer. Zählt trotzdem."],
+  youSink:["Respekt. Das war sauber.","Ich korrigiere meine Einschätzung."],
+  theyWin:["Gefecht beendet. Lesen Sie Ihr Handbuch nochmal."],
+  theyLose:["Gut gespielt. Ich verlange eine Revanche."],
+  silent:["Kontakt verloren. Sonar auf passiv."]}},
+ {name:"Admiral Viktor Kaltwasser",short:"Admiral Kaltwasser",tier:6,opts:{beard:true,monocle:true,smirk:true},motto:"«Sie sind bereits umzingelt. Sie wissen es nur noch nicht.»",q:{
+  start:["Sie sind bereits umzingelt. Sie wissen es nur noch nicht.","Ich habe gewonnen, bevor Sie Ihre Schiffe gesetzt hatten."],
+  theyHit:["Natürlich.","Die Statistik lügt nie."],
+  theySink:["Ein weiteres Wrack für meine Sammlung.","Wie bedauerlich. Für Sie."],
+  youHit:["Ein Kratzer. Mehr nicht.","Interessant. Sie lernen."],
+  youSink:["Unmöglich … rechnen Sie nach!","Das wird Konsequenzen haben."],
+  theyWin:["Wie erwartet. Wegtreten."],
+  theyLose:["Diese Niederlage existiert offiziell nicht."],
+  silent:["Verstecken Sie sich ruhig. Ich habe Zeit."]}}];
+function say(ev,chance=1){if(mode!=="cpu"||Math.random()>chance)return;const c=CMDR[diff],l=c.q[ev];if(!l)return;log(`${c.short}: «${l[rand(l.length)]}»`,"cmdr")}
+
+// ================= Schleichfahrt =================
+let silent={used:false,left:0,timer:null};
+function randomOpen(side){const o=[];side.shots.forEach((v,i)=>{if(v===0)o.push(i)});return o[rand(o.length)]}
+function typeStatus(t,cls){
+  const el=$("status");clearInterval(typeStatus.t);el.className="status"+(cls?" "+cls:"");
+  if(reduced){el.textContent=t;return}let k=0;typeStatus.t=setInterval(()=>{el.textContent=t.slice(0,++k);if(k>=t.length)clearInterval(typeStatus.t)},26);
+}
+function startSilent(){
+  if(mode!=="cpu"||phase!=="play"||silent.used)return;
+  silent.used=true;silent.left=3;document.body.classList.add("silent");
+  if(musicEl)musicEl.pause();SFX.creak();setTimeout(()=>SFX.ping(),700);
+  silent.timer=setInterval(()=>{SFX.ping();setTimeout(()=>SFX.heart(),1100)},2800);
+  log("Schleichfahrt eingeleitet. Ruhe im Boot.","big");say("silent");
+  render();typeStatus("SCHLEICHFAHRT – RUHE IM BOOT. Der Gegner hat für drei Schüsse deine Spur verloren.");
+}
+function stopSilent(){
+  clearInterval(silent.timer);silent.timer=null;silent.left=0;
+  if(document.body.classList.contains("silent")){document.body.classList.remove("silent");if(musicOn)startMusic()}
 }
 
 // ================= Zustand & Darstellung =================
@@ -606,6 +761,11 @@ function render(){
   $("weapon").textContent="Waffe: "+(weapon==="laser"?"Laser":"Kanone");
   $("sound").textContent="Effekte: "+(soundOn?"an":"aus");
   $("music").textContent="Musik: "+(musicOn?"an":"aus");
+  $("playerTitle").textContent=fleetName;drawEmblem($("emblemMini"),fleetName,PAL_G);
+  $("cmdrMini").hidden=mode!=="cpu";if(mode==="cpu")drawPortrait($("cmdrMini"),CMDR[diff].tier,PAL_A,CMDR[diff].opts);
+  const sb=$("silent");sb.hidden=mode!=="cpu";sb.disabled=(silent.used&&!silent.left)||phase!=="play";sb.classList.toggle("on",silent.left>0);
+  sb.textContent=silent.left?`Schleichfahrt · ${silent.left}`:silent.used?"Schleichfahrt verbraucht":"Schleichfahrt";
+  sb.classList.toggle("pulse",!silent.used&&phase==="play"&&mode==="cpu"&&afloat(player)===1);
   $("scPts").textContent=fmt(score.pts);
   $("scStreak").textContent=score.streak>1?`Serie ×${score.streak}`:"";
   $("scBest").textContent=mode==="cpu"&&best(diff)?fmt(best(diff)):"–";
@@ -622,7 +782,7 @@ function render(){
     paint(eCells,enemy,phase==="over",lastPlayer,null);
     fleetList($("enemyFleet"),enemy);
     $("enemyCount").textContent=`${afloat(enemy)} von 5 schwimmen`;
-    $("enemyTitle").textContent=mode==="duo"?"Gegner":"Gegnerisches Gewässer";
+    $("enemyTitle").textContent=mode==="duo"?"Gegner":CMDR[diff].short;
   }
   $("enemyBoard").classList.toggle("locked",turn!=="player"||phase!=="play");
   $("enemyPanel").classList.toggle("active",phase==="play"&&turn==="player");
@@ -647,6 +807,11 @@ function renderDock(){
 }
 function renderMenu(){
   const p=career(),k=rankOf(p),next=RANKS[k+1];
+  drawPortrait($("portrait"),k,PAL_G);drawEmblem($("emblem"),fleetName,PAL_G);
+  if(document.activeElement!==$("fleetName"))$("fleetName").value=fleetName;
+  const games=+(store.get("sv-games")||0)||0,wins=+(store.get("sv-wins")||0)||0;
+  $("idStats").innerHTML=[["Gefechte",fmt(games)],["Siege",fmt(wins)],...DIFF.map((d,i)=>["Rekord "+d.name,best(i)?fmt(best(i)):"–"])].map(([a,b])=>`<li><span>${a}</span><b>${b}</b></li>`).join("");
+  const c=CMDR[diff];drawPortrait($("cmdrPortrait"),c.tier,PAL_A,c.opts);$("cmdrName").textContent=c.name;$("cmdrQuote").textContent=c.motto;
   $("rankName").textContent=RANKS[k][0];$("rankPts").textContent=fmt(p)+" Punkte gesamt";
   $("rankBar").style.width=(next?Math.min(100,(p-RANKS[k][1])/(next[1]-RANKS[k][1])*100):100)+"%";
   $("rankNext").textContent=next?`Noch ${fmt(next[1]-p)} Punkte bis zum ${next[0]}.`:"Höchster Rang erreicht.";
@@ -656,9 +821,9 @@ function renderMenu(){
   $("resume").hidden=!s;
   if(s)$("resume").textContent=`Partie in Raum ${s.code} fortsetzen`;
 }
-function status(t,cls){const s=$("status");s.textContent=t;s.className="status"+(cls?" "+cls:"")}
+function status(t,cls){clearInterval(typeStatus.t);const s=$("status");s.textContent=t;s.className="status"+(cls?" "+cls:"")}
 function log(t,c){logItems.unshift([t,c]);logItems.length=Math.min(logItems.length,40)}
-function resetBattle(){resultOpen=false;score={pts:0,streak:0,hitPts:0,comboPts:0,effPts:0,winPts:0};game++;fx.forEach(f=>f.done());fx=[];parts=[];turn=null;selected=null;horiz=true;lastPlayer=lastCpu=-1;shots=hits=0;logItems=[];preview=null}
+function resetBattle(){stopSilent();silent={used:false,left:0,timer:null};resultOpen=false;score={pts:0,streak:0,hitPts:0,comboPts:0,effPts:0,winPts:0};game++;fx.forEach(f=>f.done());fx=[];parts=[];turn=null;selected=null;horiz=true;lastPlayer=lastCpu=-1;shots=hits=0;logItems=[];preview=null}
 
 function toMenu(){
   leaveDuo(true);resetBattle();phase="menu";mode="cpu";
@@ -754,12 +919,15 @@ $("start").addEventListener("click",()=>{
   if(mode==="duo"){duoReady();return}
   enemy=makeSide();randomize(enemy);phase="play";turn="player";preview=null;view="enemy";
   SFX.start();
-  log("Gefecht beginnt. Du hast den ersten Schuss.","me");
+  log("Gefecht beginnt. Du hast den ersten Schuss.","me");say("start");
   status(`Stufe ${DIFF[diff].name}. Dein Zug: Tippe ein Feld im gegnerischen Gewässer. Bei Treffer darfst du nochmal.`);
   render();
 });
 $("newGame").addEventListener("click",toMenu);
 $("again").addEventListener("click",()=>{resultOpen=true;render()});
+$("silent").addEventListener("click",startSilent);
+$("fleetName").addEventListener("input",e=>{fleetName=e.target.value.trim()||"Namenlose Flotte";store.set("sv-fleet",fleetName);drawEmblem($("emblem"),fleetName,PAL_G)});
+$("dice").addEventListener("click",()=>{fleetName=randomFleet();store.set("sv-fleet",fleetName);$("fleetName").value=fleetName;SFX.click();render()});
 $("resAgain").addEventListener("click",startCpu);
 $("resUp").addEventListener("click",()=>{diff=Math.min(2,diff+1);store.set("sv-diff",String(diff));startCpu()});
 $("resMenu").addEventListener("click",toMenu);
@@ -795,22 +963,25 @@ $("enemyBoard").addEventListener("click",async e=>{
   const g=game;turn="anim";render();status(`Schuss auf ${coord(i)} …`);
   SFX[weapon]();await launch($("playerBoard"),b,weapon);if(g!==game)return;
   const r=fire(enemy,i);shots++;lastPlayer=i;impact(b,r);scoreShot(r,b);
+  if(r.result==="hit")say("youHit",.35);else if(r.result==="sunk"&&!allSunk(enemy))say("youSink");
   if(r.result==="miss"){log(`Du: ${coord(i)} – Wasser.`,"me");turn="cpu";status("Wasser. Der Gegner zielt …");render();await wait(700);if(g===game)cpuTurn(g);return}
   hits++;
   if(r.result==="sunk"){log(`Du: ${coord(i)} – ${r.ship.name} versenkt!`,"big");
-    if(allSunk(enemy)){phase="over";turn=null;view="enemy";status(`Sieg! Gegnerische Flotte in ${shots} Schüssen versenkt.`+finishScore(true),"win");log("Sieg.","big");render();setTimeout(()=>{if(g===game)SFX.win()},700);return}
+    if(allSunk(enemy)){phase="over";turn=null;view="enemy";status(`Sieg! Gegnerische Flotte in ${shots} Schüssen versenkt.`+finishScore(true),"win");say("theyLose");log("Sieg.","big");render();setTimeout(()=>{if(g===game)SFX.win()},700);return}
     status(`${r.ship.name} versenkt! Nochmal schiessen.`)}
   else{log(`Du: ${coord(i)} – Treffer.`,"me");status("Treffer! Nochmal schiessen.")}
   turn="player";render();
 });
 async function cpuTurn(g){
   if(phase!=="play"||g!==game)return;
-  const i=[aiPickRecruit,aiPick,aiPickAdmiral][diff](player);status(`Gegner feuert auf ${coord(i)} …`);await showOwnFirst();if(g!==game)return;
+  const blind=silent.left>0,i=blind?randomOpen(player):[aiPickRecruit,aiPick,aiPickAdmiral][diff](player);status(`Gegner feuert auf ${coord(i)} …`);await showOwnFirst();if(g!==game)return;
   SFX[weapon]();await launch($("enemyBoard"),pCells[i],weapon);if(g!==game)return;
   const r=fire(player,i);lastCpu=i;impact(pCells[i],r);
+  if(blind){silent.left--;if(silent.left<=0){stopSilent();log("Schleichfahrt beendet. Der Gegner sucht wieder gezielt.","me")}}
+  if(r.result==="hit")say("theyHit",.35);else if(r.result==="sunk"&&!allSunk(player))say("theySink");
   if(r.result==="miss"){log(`Gegner: ${coord(i)} – Wasser.`,"cpu");turn="player";status(`Gegner schiesst auf ${coord(i)}: Wasser. Dein Zug.`);render();backToEnemy(g);return}
   if(r.result==="sunk"){log(`Gegner: ${coord(i)} – dein ${r.ship.name} ist versenkt.`,"big");
-    if(allSunk(player)){phase="over";turn=null;status("Niederlage. Deine Flotte liegt am Grund. Die gegnerischen Schiffe sind jetzt aufgedeckt."+finishScore(false),"lose");log("Niederlage.","big");render();setTimeout(()=>{if(g===game)SFX.lose()},900);return}
+    if(allSunk(player)){phase="over";turn=null;status("Niederlage. Deine Flotte liegt am Grund. Die gegnerischen Schiffe sind jetzt aufgedeckt."+finishScore(false),"lose");say("theyWin");log("Niederlage.","big");render();setTimeout(()=>{if(g===game)SFX.lose()},900);return}
     status(`Gegner versenkt deinen ${r.ship.name} und schiesst nochmal …`)}
   else{log(`Gegner: ${coord(i)} – Treffer.`,"cpu");status(`Gegner trifft ${coord(i)} und schiesst nochmal …`)}
   render();await wait(800);cpuTurn(g);
