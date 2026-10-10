@@ -127,6 +127,7 @@ h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:26px;line-hei
 .scorebar b{font-weight:400;color:var(--signal)}
 .scorebar .streak{color:var(--hit)}
 .board{-webkit-touch-callout:none}
+.cell{image-rendering:pixelated}
 .app:not(.playing) #playerBoard{touch-action:none}
 .pix{image-rendering:pixelated;image-rendering:crisp-edges;display:block}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
@@ -458,7 +459,8 @@ const SFX=new Proxy({},{get:(_,k)=>()=>play(k)});
 
 // ================= Hintergrundmusik =================
 // Eigene Komposition im Stil ruhiger Weltraum-Chiptunes: Flächen, Echo-Arpeggio, weicher Bass. 16 Takte, nahtlose Schleife.
-let musicOn=false,musicEl=null;
+let musicOn=false,musicEl=null,musicTrack=0;const musicEls=[];
+const TRACKS=["Tiefsee","Polarlicht","Gefechtsstation"];
 function renderMusic(){
   const R=16000,beat=60/92,bar=beat*4,BARS=16,L=Math.round(R*bar*BARS),out=new Float32Array(L),arp=new Float32Array(L);
   const mf=m=>440*Math.pow(2,(m-69)/12);
@@ -490,9 +492,49 @@ function renderMusic(){
   const g=.42/(pk||1);for(let i=0;i<L;i++)out[i]*=g;
   return wav(out,R);
 }
-function ensureMusic(){if(!musicEl){musicEl=new Audio(renderMusic());musicEl.loop=true;musicEl.setAttribute("playsinline","")}return musicEl}
-function startMusic(){if(!musicOn)return;try{const r=ensureMusic().play();if(r)r.catch(()=>{})}catch(e){}}
-function stopMusic(){if(musicEl)musicEl.pause()}
+// Weitere eigene Kompositionen: «Polarlicht» (ruhig, Glocken, Echo) und «Gefechtsstation» (treibend, mit Rhythmus)
+const SONGS=[
+ {bpm:72,bars:16,padVol:.05,bassVol:.1,bassMode:"long",echo:.75,melType:"bell",melVol:.07,
+  chords:[[62,65,69,72],[64,67,71,74],[65,69,72,76],[60,64,67,71],[62,65,69,74],[58,62,65,69],[57,60,64,67],[57,61,64,69]],bass:[38,40,41,36,38,34,33,33],
+  arp:{step:1,pat:[0,2,1,3,2,1],vol:.025,decay:3},
+  mel:[[0,0,74,2],[0,2,72,1],[0,3,69,1],[1,0,69,3],[2,0,71,2],[2,2,72,1],[2,3,74,1],[3,0,76,3],[4,0,77,2],[4,2,76,1],[4,3,72,1],[5,0,72,3],[6,0,71,2],[6,2,67,2],[7,0,67,4],
+       [8,0,74,1],[8,1,77,1],[8,2,81,2],[9,0,79,2],[9,2,77,2],[10,0,77,2],[10,2,74,2],[11,0,74,4],[12,0,72,2],[12,2,76,2],[13,0,74,3],[14,0,73,2],[14,2,76,2],[15,0,74,4]]},
+ {bpm:108,bars:16,padVol:.03,bassVol:.1,bassMode:"pulse",echo:.75,melType:"lead",melVol:.045,
+  chords:[[57,60,64],[53,57,60],[55,60,64],[55,59,62],[57,60,64],[53,57,60],[57,62,65],[56,59,64]],bass:[45,41,48,43,45,41,38,40],
+  arp:{step:.25,pat:[0,1,2,1],vol:.03,decay:9},drums:{from:4,hatFrom:8,kick:.35,snare:.12,hat:.03},
+  mel:[[8,0,76,1],[8,1,72,1],[8,2,69,2],[9,0,72,1],[9,1,76,1],[9,2,77,1],[9,3,76,1],[10,0,79,2],[10,2,76,2],[11,0,74,1],[11,1,72,1],[11,2,71,2],
+       [12,0,76,1],[12,1,72,1],[12,2,69,2],[13,0,72,1],[13,1,76,1],[13,2,81,2],[14,0,77,2],[14,2,76,1],[14,3,74,1],[15,0,76,3],[15,3,71,1]]}];
+function renderSong(S){
+  const R=16000,beat=60/S.bpm,bar=beat*4,L=Math.round(R*bar*S.bars),out=new Float32Array(L),wet=new Float32Array(L),mf=m=>440*Math.pow(2,(m-69)/12),tri=q=>1-4*Math.abs(q-.5);
+  const add=(buf,t0,dur,fn)=>{const st=Math.round(t0*R),n=Math.round(dur*R);for(let i=0;i<n;i++)buf[(st+i)%L]+=fn(i/R,dur)};
+  for(let b=0;b<S.bars;b+=2){
+    const c=S.chords[b/2],t0=b*bar,root=mf(S.bass[b/2]);
+    c.forEach(m=>{const f=mf(m);add(out,t0,bar*2+.6,(t,d)=>Math.min(1,t/1.2)*Math.min(1,(d-t)/1.2)*S.padVol*(Math.sin(2*Math.PI*f*t)+.6*Math.sin(2*Math.PI*f*1.006*t+1)+.25*Math.sin(2*Math.PI*f*2.003*t)))});
+    if(S.bassMode==="long"){for(let k=0;k<2;k++)add(out,t0+k*bar,bar,t=>Math.min(1,t/.02)*Math.exp(-t*.9)*S.bassVol*(Math.sin(2*Math.PI*root*t)+.25*tri((root*t)%1)))}
+    else{for(let k=0;k<16;k++){const f=k%4===2?root*2:root;add(out,t0+k*beat/2,beat/2*.9,t=>Math.min(1,t/.005)*Math.exp(-t*7)*S.bassVol*(Math.sin(2*Math.PI*f*t)+.45*tri((f*t)%1)))}}
+    const A=S.arp,steps=Math.round(8/A.step);
+    for(let k=0;k<steps;k++){const idx=A.pat[k%A.pat.length],f=mf(c[idx%c.length]+12);let lp=0;
+      add(wet,t0+k*A.step*beat,A.step*beat*.95,t=>{const q=(f*t)%1,raw=tri(q)*.7+(q<.5?.3:-.3);lp+=(raw-lp)*.3;return Math.min(1,t/.004)*Math.exp(-t*A.decay)*A.vol*lp})}
+    if(S.drums&&b>=S.drums.from){for(let k=0;k<8;k++){const tb=t0+k*beat;
+      if(k%2===0){let ph=0;add(out,tb,.3,t=>{ph+=(45+80*Math.exp(-t*28))/R;return Math.exp(-t*10)*S.drums.kick*Math.sin(2*Math.PI*ph)})}
+      else{let lp=0;add(out,tb,.2,t=>{lp+=((Math.random()*2-1)-lp)*.35;return Math.exp(-t*20)*S.drums.snare*(lp+.3*Math.sin(2*Math.PI*190*t))})}
+      if(b>=S.drums.hatFrom)add(out,tb+beat/2,.05,t=>Math.exp(-t*90)*S.drums.hat*(Math.random()*2-1))}}
+  }
+  S.mel.forEach(([b,bt,m,d])=>{const f=mf(m),dur=d*beat,t0=b*bar+bt*beat;
+    if(S.melType==="bell")add(wet,t0,dur+1.2,t=>Math.min(1,t/.01)*Math.exp(-t*2.2)*S.melVol*(Math.sin(2*Math.PI*f*t)+.5*Math.sin(2*Math.PI*f*2.003*t)+.2*Math.sin(2*Math.PI*f*3.01*t)));
+    else{let lp=0;add(wet,t0,dur,(t,dd)=>{const q=(f*(1+.004*Math.sin(2*Math.PI*5.5*t))*t)%1;lp+=((q<.5?1:-1)-lp)*.12;return Math.min(1,t/.02)*Math.min(1,(dd-t)/.06)*S.melVol*lp})}
+  });
+  const dl=Math.round(R*beat*S.echo);
+  for(let i=0;i<L;i++)out[i]+=wet[i]+wet[(i-dl+L)%L]*.4+wet[(i-2*dl+2*L)%L]*.18;
+  let pk=0;for(let i=0;i<L;i++)pk=Math.max(pk,Math.abs(out[i]));const g=.42/(pk||1);for(let i=0;i<L;i++)out[i]*=g;
+  return wav(out,R);
+}
+function ensureMusic(){
+  if(!musicEls[musicTrack]){const a=new Audio(musicTrack===0?renderMusic():renderSong(SONGS[musicTrack-1]));a.loop=true;a.setAttribute("playsinline","");musicEls[musicTrack]=a}
+  musicEl=musicEls[musicTrack];return musicEl;
+}
+function startMusic(){if(!musicOn)return;try{musicEls.forEach((a,i)=>{if(a&&i!==musicTrack)a.pause()});const r=ensureMusic().play();if(r)r.catch(()=>{})}catch(e){}}
+function stopMusic(){musicEls.forEach(a=>{if(a)a.pause()})}
 setTimeout(()=>{try{ensureMusic()}catch(e){}},600);
 let musicStarted=false;
 ["touchend","pointerup","click"].forEach(ev=>addEventListener(ev,()=>{if(!musicStarted&&musicOn){musicStarted=true;startMusic()}},{capture:true,passive:true}));
@@ -613,9 +655,9 @@ function renderResult(){
   const k=rankOf(R.after),next=RANKS[k+1];
   $("resRank").textContent=`Rang: ${RANKS[k][0]}. `+(next?`Noch ${fmt(next[1]-R.after)} Punkte bis zum ${next[0]}.`:"Höchster Rang erreicht.");
   const cpu=R.mode==="cpu";
-  $("resAgain").hidden=!cpu;$("resAgain").textContent=R.won?"Nochmal":"Revanche";
+  $("resAgain").hidden=false;$("resAgain").textContent=cpu?(R.won?"Nochmal":"Revanche"):(duo&&duo.oppRound>duo.round?"Revanche annehmen":"Neue Runde");
   $("resUp").hidden=!(cpu&&R.won&&R.diff<2);if(!$("resUp").hidden)$("resUp").textContent=`Eine Stufe höher: ${DIFF[R.diff+1].name}`;
-  $("resMenu").className=cpu?"btn":"btn primary";
+  $("resMenu").className="btn";
 }
 
 // ================= Dienstausweis: Passfoto, Wappen, Kommandanten =================
@@ -651,18 +693,24 @@ function drawPortrait(cv,tier,P,o={}){
   if(!off){r(P.white,9,6,14,4);r(P.white,10,5,12,1);r(P.dark,9,9,14,1);r(P.dark,22,9,2,4);r(P.dark,23,13,1,1)}
   else{r(P.white,8,4,16,3);r(P.white,9,3,14,1);r(P.uni2,8,7,16,2);r(tier>=4?P.gold:P.dark,9,7,14,1);r(P.gold,15,5,2,3);r(P.dark,9,9,14,1);if(tier>=6)r(P.gold,10,9,12,1)}
 }
+const SYMBOLS_EXTRA=[
+ [".....##.....","..#..##..#..","...######...","..##.##.##..",".##..##..##.","############","############",".##..##..##.","..##.##.##..","...######...","..#..##..#..",".....##.....","............","............"],
+ [".....##.....","....####....","..#.####.#..","....####....","....#..#....","....####....","...######...","...#....#...","...######...","..########..","..#......#..","..########..",".##########.","############"],
+ ["............","............","#....##....#","##..####..##","###.####.###","############","############","#.##.##.##.#","############","############","............","############","############","............"]];
 const SYMBOLS=[
  ["....####....","....#..#....","....####....",".....##.....","..########..",".....##.....",".....##.....",".....##.....",".....##.....","#....##....#","##...##...##",".##..##..##.","..########..","....####...."],
  ["#....##....#","#....##....#","#....##....#","##...##...##",".##########.","..########..",".....##.....",".....##.....",".....##.....",".....##.....",".....##.....",".....##.....","....####....",".....##....."],
  [".....##.....",".....##.....","....####....","....####....","############",".##########.","..########..","...######...","...######...","..###..###..","..##....##..",".##......##.","............","............"]];
 function hashStr(t){let h=2166136261;for(const ch of t){h^=ch.codePointAt(0);h=Math.imul(h,16777619)}return h>>>0}
 function drawEmblem(cv,name,P){
-  const x=cv.getContext("2d"),r=(c,a,b,w,h)=>{x.fillStyle=c;x.fillRect(a,b,w,h)},h=hashStr(name||"Flotte");
+  const x=cv.getContext("2d"),r=(c,a,b,w,h)=>{x.fillStyle=c;x.fillRect(a,b,w,h)},h=hashStr((name||"Flotte").toLowerCase());
+  const SYM=SYMBOLS.concat(SYMBOLS_EXTRA),shape=(h>>>3)%3,pat=(h>>>6)%5,sym=SYM[h%SYM.length],col=[P.gold,P.white,P.skin][(h>>>9)%3],field=[P.uni2,P.dark,P.uni][(h>>>12)%3],alt=field===P.uni?P.uni2:P.uni;
+  const width=y=>{if(shape===0)return y<20?26:Math.max(2,26-Math.round((y-20)*2.4));if(shape===1){if(y<16)return 26;const d=y-16;return Math.max(2,Math.round(2*Math.sqrt(Math.max(0,169-d*d))))}return 26};
   x.clearRect(0,0,32,32);
-  for(let y=1;y<31;y++){const w=y<20?26:Math.max(2,26-Math.round((y-20)*2.4)),x0=Math.round(16-w/2);r(P.gold,x0,y,w,1)}
-  for(let y=2;y<30;y++){const w=y<20?24:Math.max(0,24-Math.round((y-20)*2.4)-1),x0=Math.round(16-w/2);r(P.uni2,x0,y,w,1)}
-  const acc=(h>>4)%3;if(acc===1)r(P.uni,4,20,24,2);if(acc===2){r(P.gold,7,4,2,2);r(P.gold,23,4,2,2)}
-  const sym=SYMBOLS[h%3],col=[P.gold,P.white,P.skin][(h>>8)%3];
+  for(let y=1;y<31;y++){const w=width(y),x0=Math.round(16-w/2);r(P.gold,x0,y,w,1)}
+  for(let y=2;y<30;y++){const w=width(y)-2;if(w<=0)continue;const x0=Math.round(16-w/2);
+    for(let xx=x0;xx<x0+w;xx++){const on=pat===1?xx>=16:pat===2?(y>=12&&y<=17):pat===3?Math.abs(y-(25-Math.abs(xx-16)*.9))<2:pat===4?((xx>=16)!==(y>=15)):false;r(on?alt:field,xx,y,1,1)}}
+  if(shape===2)for(let y=24;y<31;y++){const n=(y-23)*2;x.clearRect(16-n/2,y,n,1)}
   sym.forEach((row,yy)=>[...row].forEach((c,xx)=>{if(c==="#")r(col,10+xx,6+yy,1,1)}));
 }
 const FLEET_A=["Flotte","Geschwader","Verband","Kampfgruppe","Division"];
@@ -709,7 +757,7 @@ function typeStatus(t,cls){
 function startSilent(){
   if(mode!=="cpu"||phase!=="play"||silent.used)return;
   silent.used=true;silent.left=3;document.body.classList.add("silent");
-  if(musicEl)musicEl.pause();SFX.creak();setTimeout(()=>SFX.ping(),700);
+  stopMusic();SFX.creak();setTimeout(()=>SFX.ping(),700);
   silent.timer=setInterval(()=>{SFX.ping();setTimeout(()=>SFX.heart(),1100)},2800);
   log("Schleichfahrt eingeleitet. Ruhe im Boot.","big");say("silent");
   render();typeStatus("SCHLEICHFAHRT – RUHE IM BOOT. Der Gegner hat für drei Schüsse deine Spur verloren.");
@@ -737,15 +785,44 @@ function buildBoard(el,label){
 const pCells=buildBoard($("playerBoard"),"Eigenes Feld");
 const eCells=buildBoard($("enemyBoard"),"Gegnerisches Feld");
 const SHOT_CLASS=["","s-miss","s-hit","s-sunk","s-auto"];
-function paint(cells,side,showShips,last,prev){
+function paint(cells,side,showShips,last,prev,hidden=-1){
   cells.forEach((b,i)=>{
-    let cls="cell";
-    if(showShips&&side.grid[i]!==-1&&side.shots[i]!==3)cls+=" ship";
-    if(side.shots[i])cls+=" "+SHOT_CLASS[side.shots[i]];
-    if(prev&&prev.cells.includes(i))cls+=prev.ok?" prev-ok":" prev-bad";
-    if(i===last)cls+=" last";
-    b.className=cls;
+    let cls="cell",bg="";const sh=i===hidden?0:side.shots[i];
+    if(showShips&&side.grid[i]!==-1&&sh!==3){cls+=" ship";bg=shipBg(side,i)}
+    if(sh)cls+=" "+SHOT_CLASS[sh];
+    if(prev&&prev.cells.includes(i)){cls+=prev.ok?" prev-ok":" prev-bad";bg=""}
+    if(i===last&&i!==hidden)cls+=" last";
+    if(b.className!==cls)b.className=cls;
+    if(b._bg!==bg){b._bg=bg;b.style.background=bg}
   });
+}
+// Pixel-Schiffe: pro Schiffstyp ein Bild über die ganze Länge, jede Kachel zeigt ihren Ausschnitt
+const SHIP_SPR=(()=>{
+  const C={hull:"#3dbb5f",deck:"#2a8a45",dark:"#0b1c11",light:"#a6ffb8",acc:"#e9ff7a"};
+  function hullCol(x,W,type){
+    if(type===3){const e=7;let h=4;if(x<e)h=4*Math.sqrt((x+.5)/e);else if(x>W-e)h=4*Math.sqrt((W-x-.5)/e);return h}
+    const bow=[7,10,9,0,11][type],st=type===0?0:2;let h=5;
+    if(x>W-bow)h=5*(1-((x-(W-bow))/bow)*.85);if(x<st)h=4;return h;
+  }
+  function draw(type,len){
+    const W=16*len,cv=document.createElement("canvas");cv.width=W;cv.height=16;const x=cv.getContext("2d"),r=(c,a,b,w,h)=>{x.fillStyle=c;x.fillRect(Math.round(a),Math.round(b),w,h)};
+    for(let i=0;i<W;i++){const h=hullCol(i,W,type),t=Math.round(8-h),hh=Math.max(1,Math.round(2*h));r(C.dark,i,t-1,1,hh+2);r(C.hull,i,t,1,hh);if(hh>4)r(C.deck,i,t+2,1,hh-4)}
+    const tur=(px)=>{r(C.dark,px-2,6,5,4);r(C.light,px-1,7,3,2);r(C.light,px+2,7,4,1)};
+    if(type===0){for(let i=4;i<W-12;i+=6)r(C.light,i,7,3,1);const ix=Math.round(W*.6);r(C.dark,ix-1,0,9,6);r(C.hull,ix,1,7,4);r(C.light,ix+1,2,2,1);r(C.light,ix+4,2,2,1);r(C.acc,ix+3,0,1,1)}
+    if(type===1){[.18,.3,.8].forEach(f=>tur(Math.round(W*f)));const sx=Math.round(W*.45);r(C.dark,sx-1,4,14,8);r(C.light,sx,5,12,6);r(C.dark,sx+3,6,2,1);r(C.dark,sx+7,6,2,1);r(C.acc,sx+5,3,2,2)}
+    if(type===2){[.22,.75].forEach(f=>tur(Math.round(W*f)));const sx=Math.round(W*.45);r(C.dark,sx-1,5,10,6);r(C.light,sx,6,8,4);r(C.acc,sx+4,2,1,4)}
+    if(type===3){const cx=Math.round(W*.45);r(C.dark,cx-1,3,9,4);r(C.hull,cx,4,7,3);r(C.light,cx+5,1,1,3);r(C.light,cx+5,1,3,1);r(C.light,6,8,W-14,1)}
+    if(type===4){tur(Math.round(W*.72));const fx=Math.round(W*.36);r(C.dark,fx-1,4,6,6);r(C.light,fx,5,4,4);r(C.dark,fx,5,4,1);r(C.light,Math.round(W*.52),6,4,4)}
+    const v=document.createElement("canvas");v.width=16;v.height=W;const y=v.getContext("2d");y.translate(0,W);y.rotate(-Math.PI/2);y.drawImage(cv,0,0);
+    return{h:cv.toDataURL(),v:v.toDataURL()};
+  }
+  try{return FLEET.map(([,len],t)=>draw(t,len))}catch(e){return null}
+})();
+function shipBg(side,i){
+  if(!SHIP_SPR)return"";const s=side.ships[side.grid[i]];if(!s||!s.cells.length)return"";
+  const cs=s.cells.slice().sort((a,b)=>a-b),k=cs.indexOf(i),n=cs.length;if(k<0)return"";
+  const h=n<2||cs[1]-cs[0]===1,pc=n>1?k/(n-1)*100:0;
+  return h?`url(${SHIP_SPR[s.id].h}) ${pc}% 0/${n*100}% 100% no-repeat, var(--sea)`:`url(${SHIP_SPR[s.id].v}) 0 ${100-pc}%/100% ${n*100}% no-repeat, var(--sea)`;
 }
 function fleetList(el,side){el.innerHTML=side.ships.map(s=>`<li class="${s.sunk?"sunk":""}"><span class="pips">${"<i></i>".repeat(s.len)}</span>${s.name}</li>`).join("")}
 function render(){
@@ -760,7 +837,7 @@ function render(){
   $("viewEnemy").classList.toggle("alert",view==="own"&&turn==="player"&&phase==="play");
   $("weapon").textContent="Waffe: "+(weapon==="laser"?"Laser":"Kanone");
   $("sound").textContent="Effekte: "+(soundOn?"an":"aus");
-  $("music").textContent="Musik: "+(musicOn?"an":"aus");
+  $("music").textContent="Musik: "+(musicOn?TRACKS[musicTrack]:"aus");
   $("playerTitle").textContent=fleetName;drawEmblem($("emblemMini"),fleetName,PAL_G);
   $("cmdrMini").hidden=mode!=="cpu";if(mode==="cpu")drawPortrait($("cmdrMini"),CMDR[diff].tier,PAL_A,CMDR[diff].opts);
   const sb=$("silent");sb.hidden=mode!=="cpu";sb.disabled=(silent.used&&!silent.left)||phase!=="play";sb.classList.toggle("on",silent.left>0);
@@ -775,7 +852,7 @@ function render(){
   $("again").hidden=!(phase==="over"&&!resultOpen&&lastRes);
   renderResult();
   if(phase==="menu"){renderMenu();return}
-  paint(pCells,player,true,lastCpu,preview);
+  paint(pCells,player,true,lastCpu,preview,duo?duo.hideIn:-1);
   fleetList($("playerFleet"),player);
   $("playerCount").textContent=phase==="setup"?`${player.ships.filter(s=>s.cells.length).length}/5 platziert`:`${afloat(player)} von 5 schwimmen`;
   if(inGame){
@@ -800,7 +877,7 @@ function renderDock(){
   $("invite").hidden=!(mode==="duo"&&duo&&!duo.oppOnline);
   if(mode==="duo"&&duo){
     $("roomCode").textContent=duo.code;
-    $("oppState").textContent=!duo.oppOnline?(duo.net||"Warte auf das zweite Gerät …"):duo.oppReady?"Gegner ist bereit.":"Gegner ist da und stellt auf …";
+    $("oppState").textContent=!duo.oppOnline?(duo.net||"Warte auf das zweite Gerät …"):duo.oppRound<duo.round?"Warte, bis der Gegner auch eine neue Runde startet …":duo.oppReady?"Gegner ist bereit.":"Gegner ist da und stellt auf …";
     $("start").textContent=duo.ready?"Warte auf Gegner …":"Bereit";
     $("start").disabled=!!open.length||duo.ready;
   }else{$("start").textContent="Gefecht starten";$("start").disabled=!!open.length}
@@ -928,7 +1005,7 @@ $("again").addEventListener("click",()=>{resultOpen=true;render()});
 $("silent").addEventListener("click",startSilent);
 $("fleetName").addEventListener("input",e=>{fleetName=e.target.value.trim()||"Namenlose Flotte";store.set("sv-fleet",fleetName);drawEmblem($("emblem"),fleetName,PAL_G)});
 $("dice").addEventListener("click",()=>{fleetName=randomFleet();store.set("sv-fleet",fleetName);$("fleetName").value=fleetName;SFX.click();render()});
-$("resAgain").addEventListener("click",startCpu);
+$("resAgain").addEventListener("click",()=>{if(mode==="duo"&&duo)duoNewRound();else startCpu()});
 $("resUp").addEventListener("click",()=>{diff=Math.min(2,diff+1);store.set("sv-diff",String(diff));startCpu()});
 $("resMenu").addEventListener("click",toMenu);
 $("resView").addEventListener("click",()=>{resultOpen=false;render()});
@@ -943,7 +1020,10 @@ $("joinForm").addEventListener("submit",e=>{
 });
 $("resume").addEventListener("click",()=>{const s=loadDuo();if(s)startDuo(s.code,s.role,s)});
 $("weapon").addEventListener("click",()=>{weapon=weapon==="laser"?"cannon":"laser";store.set("sv-weapon",weapon);render();SFX[weapon]()});
-$("music").addEventListener("click",()=>{musicOn=!musicOn;store.set("sv-music",musicOn?"an":"aus");musicStarted=true;if(musicOn)startMusic();else stopMusic();render()});
+$("music").addEventListener("click",()=>{
+  if(!musicOn){musicOn=true;musicTrack=0}else if(musicTrack<TRACKS.length-1)musicTrack++;else musicOn=false;
+  musicStarted=true;stopMusic();if(musicOn&&!document.body.classList.contains("silent"))startMusic();render();
+});
 $("sound").addEventListener("click",()=>{soundOn=!soundOn;store.set("sv-sound",soundOn?"an":"aus");render();
   if(!soundOn){status("Effekte aus.");return}
   SFX.test();
@@ -1052,7 +1132,7 @@ function peerTransport(code,role,onState){
 }
 function duoNote(t){$("duoNote").textContent=t;status(t)}
 function loadDuo(){try{const s=JSON.parse(store.get("sv-duo")||"null");return s&&Date.now()-s.t<6*3600e3?s:null}catch(e){return null}}
-function saveDuo(){if(!duo)return;store.set("sv-duo",JSON.stringify({code:duo.code,role:duo.role,tok:duo.tok,ready:duo.ready,myShots:duo.myShots,myRes:duo.myRes,player:{ships:player.ships,grid:player.grid,shots:player.shots},t:Date.now()}))}
+function saveDuo(){if(!duo)return;store.set("sv-duo",JSON.stringify({code:duo.code,role:duo.role,tok:duo.tok,round:duo.round,baseRole:duo.baseRole,ready:duo.ready,myShots:duo.myShots,myRes:duo.myRes,player:{ships:player.ships,grid:player.grid,shots:player.shots},t:Date.now()}))}
 function leaveDuo(forget){
   if(duo){try{duo.unsub&&duo.unsub()}catch(e){}duo.room.leave().catch(()=>{});duo=null}
   if(forget)store.set("sv-duo","");
@@ -1063,7 +1143,7 @@ async function startDuo(code,role,saved){
   let nr;try{nr=await peerTransport(code,role,t=>{if(duo){duo.net=t;render()}})}catch(e){
     duoNote(e&&e.code==="no_lib"?"Die Verbindungstechnik konnte nicht laden. Prüf die Internetverbindung und lade die Seite neu.":`Verbindung fehlgeschlagen (${e&&e.code||"Fehler"}). Prüf die Internetverbindung und versuch es nochmal.`);return}
   resetBattle();mode="duo";enemy=makeSide();
-  duo={code,role,tok:(saved&&saved.tok)||Math.random().toString(36).slice(2,10),net:nr.netState||"",room:nr,myShots:[],myRes:[],ready:false,enqOpp:0,enqMine:0,doneMine:0,jobs:[],busy:false,pendingAnim:null,
+  duo={code,role,round:(saved&&saved.round)||0,baseRole:(saved&&saved.baseRole)||null,oppRound:0,hideIn:-1,tok:(saved&&saved.tok)||Math.random().toString(36).slice(2,10),net:nr.netState||"",room:nr,myShots:[],myRes:[],ready:false,enqOpp:0,enqMine:0,doneMine:0,jobs:[],busy:false,pendingAnim:null,
        oppOnline:false,oppReady:false,oppShots:[],oppRes:[],oppFleet:null,reveal:false,lastMsg:"",finished:false};
   if(saved){
     player=makeSide();Object.assign(player,saved.player);
@@ -1078,7 +1158,17 @@ async function startDuo(code,role,saved){
 }
 function pushPresence(){
   if(!duo)return;
-  duo.room.presence({v:1,tok:duo.tok,role:duo.role,ready:duo.ready,shots:duo.myShots,res:duo.myRes,fleet:duo.reveal?player.ships.map(s=>s.cells):null}).catch(()=>{});
+  duo.room.presence({v:1,round:duo.round,tok:duo.tok,role:duo.role,ready:duo.ready,shots:duo.myShots,res:duo.myRes,fleet:duo.reveal?player.ships.map(s=>s.cells):null}).catch(()=>{});
+}
+function effRole(){const b=duo.baseRole||duo.role;return duo.round%2===0?b:(b==="host"?"guest":"host")}
+// Neue Runde im selben Raum: Flotte neu aufstellen, abwechselnd beginnt der andere
+function duoNewRound(){
+  if(!duo)return;const d=duo;resetBattle();mode="duo";
+  Object.assign(d,{round:d.round+1,myShots:[],myRes:[],ready:false,enqOpp:0,enqMine:0,doneMine:0,jobs:[],busy:false,pendingAnim:null,oppReady:false,oppShots:[],oppRes:[],oppFleet:null,reveal:false,lastMsg:"",hideIn:-1});
+  d.role=effRole();player=makeSide();randomize(player);enemy=makeSide();phase="setup";view="enemy";
+  pushPresence();saveDuo();
+  status(d.oppRound>=d.round?"Neue Runde! Stell deine Flotte auf und tippe auf Bereit.":"Neue Runde angefragt. Stell deine Flotte auf. Sobald der Gegner auch zusagt, geht's los.");
+  render();sync();
 }
 function opponent(){return duo?duo.room.peers().find(p=>!p.sameTab&&p.presence&&p.presence.v===1):null}
 function duoReady(){
@@ -1095,17 +1185,20 @@ function sync(){
   if(!duo)return;
   const o=opponent();duo.oppOnline=!!o;
   if(o){
-    const P=o.presence;duo.oppReady=!!P.ready;
-    if(typeof P.tok==="string"&&P.tok&&P.tok!==duo.tok){const r=duo.tok<P.tok?"host":"guest";if(r!==duo.role){duo.role=r;saveDuo()}}
-    duo.oppShots=Array.isArray(P.shots)?P.shots:[];duo.oppRes=Array.isArray(P.res)?P.res:[];
-    if(Array.isArray(P.fleet))duo.oppFleet=P.fleet;
-    if(phase==="setup"&&duo.ready&&duo.oppReady)beginDuo();
-    if(phase==="play"||phase==="over"){
-      for(;duo.enqOpp<duo.oppShots.length;duo.enqOpp++)duo.jobs.push({t:"in",c:duo.oppShots[duo.enqOpp]});
-      for(;duo.enqMine<Math.min(duo.oppRes.length,duo.myShots.length);duo.enqMine++)duo.jobs.push({t:"out",k:duo.enqMine,r:duo.oppRes[duo.enqMine]});
-      runJobs();
-    }
-    if(phase==="over"&&duo.oppFleet)revealEnemy();
+    const P=o.presence,oR=+P.round||0;duo.oppRound=oR;
+    if(typeof P.tok==="string"&&P.tok&&P.tok!==duo.tok){duo.baseRole=duo.tok<P.tok?"host":"guest";const r=effRole();if(r!==duo.role){duo.role=r;saveDuo()}}
+    if(oR===duo.round){
+      duo.oppReady=!!P.ready;
+      duo.oppShots=Array.isArray(P.shots)?P.shots:[];duo.oppRes=Array.isArray(P.res)?P.res:[];
+      if(Array.isArray(P.fleet))duo.oppFleet=P.fleet;
+      if(phase==="setup"&&duo.ready&&duo.oppReady)beginDuo();
+      if(phase==="play"||phase==="over"){
+        for(;duo.enqOpp<duo.oppShots.length;duo.enqOpp++)duo.jobs.push({t:"in",c:duo.oppShots[duo.enqOpp]});
+        for(;duo.enqMine<Math.min(duo.oppRes.length,duo.myShots.length);duo.enqMine++)duo.jobs.push({t:"out",k:duo.enqMine,r:duo.oppRes[duo.enqMine]});
+        runJobs();
+      }
+      if(phase==="over"&&duo.oppFleet)revealEnemy();
+    }else{duo.oppReady=false;if(oR>duo.round&&phase==="over"&&!resultOpen)status("Der Gegner will eine neue Runde! Tippe oben auf «Ergebnis» und dann auf «Revanche annehmen».")}
   }
   if(phase==="play"&&!duo.busy)afterStep();
   render();
@@ -1135,8 +1228,9 @@ async function runJobs(){
     if(j.t==="in"){
       const c=j.c;
       if(!okCell(c)||player.shots[c]!==0){d.myRes.push("m");pushPresence();saveDuo();continue}
-      if(!fast){status(`Gegner feuert auf ${coord(c)} …`);await showOwnFirst();if(g!==game)return;SFX[weapon]();await launch($("enemyBoard"),pCells[c],weapon);if(g!==game)return}
-      const r=fire(player,c);lastCpu=c;d.myRes.push(encodeRes(r));pushPresence();saveDuo();
+      const r=fire(player,c);d.myRes.push(encodeRes(r));pushPresence();saveDuo();
+      if(!fast){d.hideIn=c;status(`Gegner feuert auf ${coord(c)} …`);await showOwnFirst();if(g!==game)return;SFX[weapon]();await launch($("enemyBoard"),pCells[c],weapon);if(g!==game)return;d.hideIn=-1}
+      lastCpu=c;
       if(!fast)impact(pCells[c],r);
       d.lastMsg=r.result==="miss"?`Gegner: ${coord(c)} Wasser.`:r.result==="hit"?`Gegner trifft ${coord(c)}.`:`Gegner versenkt deinen ${r.ship.name}!`;
       log(r.result==="sunk"?`Gegner: ${coord(c)} – dein ${r.ship.name} ist versenkt.`:`Gegner: ${coord(c)} – ${r.result==="miss"?"Wasser":"Treffer"}.`,r.result==="sunk"?"big":"cpu");
@@ -1148,7 +1242,7 @@ async function runJobs(){
         log(r.result==="sunk"?`Du: ${coord(c)} – ${r.ship.name} versenkt!`:`Du: ${coord(c)} – ${r.result==="miss"?"Wasser":"Treffer"}.`,r.result==="sunk"?"big":"me")}
     }
     afterStep();render();
-    if(!fast)await wait(300);
+    if(!fast)await wait(120);
     if(g!==game)return;
   }
   d.busy=false;afterStep();render();
